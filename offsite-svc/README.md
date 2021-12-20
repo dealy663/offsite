@@ -2,7 +2,7 @@
 
 generated using Luminus version "4.27"
 
-Offsite Service - manager of backups for members of "The Collective"
+Offsite Service - manager of backups for members of the BUC 
     
 
 ## Prerequisites
