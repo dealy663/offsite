@@ -2,7 +2,8 @@
 
 generated using Luminus version "4.27"
 
-FIXME
+Offsite Service - manager of backups for members of "The Collective"
+    
 
 ## Prerequisites
 

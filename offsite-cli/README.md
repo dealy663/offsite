@@ -2,7 +2,8 @@
 
 generated using Luminus version "4.27"
 
-FIXME
+Offsite Client - client node for members of the BUC (backup collective) group. BUC client pushes backups out to BUC nodes via the BUC service
+
 
 ## Prerequisites
 

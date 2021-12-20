@@ -2,7 +2,7 @@
 
 generated using Luminus version "4.27"
 
-FIXME
+Offsite Node - backup node for the BUC (backup collective) group bucg
 
 ## Prerequisites
 
