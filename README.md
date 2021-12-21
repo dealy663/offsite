@@ -1,0 +1,3 @@
+# Offsite 
+
+The backup collective (BUC) group was envisioned as a way for like minded people to work together to provide hardware and software services that allow for an offsite backup platform. Conceptually a member of the collective would provide a hardware platform capable of running an instance of the Offsite-Node service. In order to participate in the collective a member would have to run offsite-node on a computer that provides at least as much space as the member needs to backup into the collective. However BUC members are encouraged to provide more space and continuously available disk and compute resources to the collective. Providing more space than a member requires allows for the member's data to be duplicated across more nodes.
