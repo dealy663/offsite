@@ -3,8 +3,8 @@
 ;; This file is listed in .gitignore and will be excluded from version control by Git.
 
 {:dev true
- :port 3002
+ :port 3020
  ;; when :nrepl-port is set the application starts the nREPL server on load
- :nrepl-port 7002
+ :nrepl-port 7020
  
  }
