@@ -5,5 +5,6 @@
             [offsite-cli.core :as rc]))
 
 (deftest test-home
-  (is (= true true)))
+  #_ (is (= true true))
+  (is (= true false)))
 
