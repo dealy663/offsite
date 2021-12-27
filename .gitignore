@@ -1,2 +1,5 @@
 .nrepl-history
 .cpcache
+.DS_Store
+package-lock.json
+*.iml
