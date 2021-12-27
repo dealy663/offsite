@@ -1,0 +1,3 @@
+{{:path "test/backup-data/du.out"}
+ {:path "test/backup-data/music"
+  :exclude ["medium" "large"]}}
