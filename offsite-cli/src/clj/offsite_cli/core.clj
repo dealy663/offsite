@@ -9,6 +9,8 @@
     [mount.core :as mount])
   (:gen-class))
 
+(declare http-server env repl-server)
+
 ;; log uncaught exceptions in threads
 (Thread/setDefaultUncaughtExceptionHandler
   (reify Thread$UncaughtExceptionHandler
@@ -46,6 +48,8 @@
     (log/info component "stopped"))
   (shutdown-agents))
 
+;; Add some options that allow to override the location of config files. The default location will be the
+;; same directory that the program is installed to
 (defn start-app [args]
   (doseq [component (-> args
                         (parse-opts cli-options)
