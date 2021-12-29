@@ -13,6 +13,8 @@
                  [expound "0.8.10"]
                  [funcool/struct "1.4.0"]
                  [json-html "0.4.7"]
+                 [com.xtdb/xtdb-core "1.20.0"]
+                 [com.xtdb/xtdb-rocksdb "1.20.0"]
                  [luminus-http-kit "0.1.9"]
                  [luminus-transit "0.1.3"]
                  [luminus/ring-ttl-session "0.3.3"]
