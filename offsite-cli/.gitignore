@@ -18,4 +18,5 @@ profiles.clj
 .DS_Store
 package-lock.json
 test/backup-data/active
+data/dev
 

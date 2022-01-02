@@ -4,7 +4,7 @@
 
 (defn start-xtdb! []
   (letfn [(kv-store [dir]
-            {:kv-store {:xtdb/module 'xtdb.rocksdb/->kv-store
+            {:kv-store {:xtdb/module 'xtdb.lmdb/->kv-store
                         :db-dir (io/file dir)
                         :sync? true}})]
     (xt/start-node
