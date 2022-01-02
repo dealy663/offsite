@@ -6,7 +6,8 @@
     [offsite-cli.config :refer [env]]
     [clojure.tools.cli :refer [parse-opts]]
     [clojure.tools.logging :as log]
-    [mount.core :as mount])
+    [mount.core :as mount]
+    [offsite-cli.db.core :as db])
   (:gen-class))
 
 ;; log uncaught exceptions in threads
@@ -20,6 +21,10 @@
 (def cli-options
   [["-p" "--port PORT" "Port number"
     :parse-fn #(Integer/parseInt %)]])
+
+(mount/defstate db-node*
+  :start (db/start-db! env)
+  :stop  (db/stop-db! db-node*))
 
 (mount/defstate ^{:on-reload :noop} http-server
   :start
