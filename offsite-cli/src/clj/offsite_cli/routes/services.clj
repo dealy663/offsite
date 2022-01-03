@@ -8,6 +8,7 @@
     [reitit.ring.middleware.multipart :as multipart]
     [reitit.ring.middleware.parameters :as parameters]
     [offsite-cli.middleware.formats :as formats]
+    [offsite-cli.init :as init]
     [ring.util.http-response :refer :all]
     [clojure.java.io :as io]))
 
@@ -35,7 +36,7 @@
 
    ;; swagger documentation
    ["" {:no-doc true
-        :swagger {:info {:title "my-api"
+        :swagger {:info {:title "Offsite Client API"
                          :description "https://cljdoc.org/d/metosin/reitit"}}}
 
     ["/swagger.json"
@@ -48,7 +49,25 @@
 
    ["/ping"
     {:get (constantly (ok {:message "pong"}))}]
-   
+
+   ["/init"
+    {:swagger {:tags ["init"]}}
+
+    ["/default-backup-paths"
+     {:get {:summary   (str "display the default backup paths in: " init/default-paths-config)
+            ;:responses (init/get-paths)
+            :handler   (fn [_]
+                         (let [response (init/get-paths)]
+                           {:status (if (not (nil? response)) 200 404)
+                            :body   response}))}}]
+    ["/load-backup-paths"
+     {:post {:summary    "Specify a custom location for a backup-paths.edn configuration file."
+             :parameters {:body {:path string?}}
+             :responses  {200 {:body {:path string?, :found boolean?}}}
+             :handler    (fn [{{{:keys [path]} :body} :parameters}]
+                           (let [backup-paths (init/get-paths path)]
+                             {:status (if (not (nil? backup-paths)) 200 401)
+                              :body   {:path path :found (not (nil? backup-paths))}}))}}]]
 
    ["/math"
     {:swagger {:tags ["math"]}}
