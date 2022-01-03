@@ -53,13 +53,20 @@
    ["/init"
     {:swagger {:tags ["init"]}}
 
-    ["/default-backup-paths"
-     {:get {:summary   (str "display the default backup paths in: " init/default-paths-config)
+    ["/get-backup-paths"
+     {:get {:summary (str "display the current backup paths in: " (:paths-file @init/paths-config))
             ;:responses (init/get-paths)
-            :handler   (fn [_]
-                         (let [response (init/get-paths)]
-                           {:status (if (not (nil? response)) 200 404)
-                            :body   response}))}}]
+            :handler (fn [_]
+                       (let [response (init/get-paths)]
+                         {:status (if (not (nil? response)) 200 404)
+                          :body   response}))}}]
+
+    ["/reset-default-backup-paths"
+     {:get {:summary "Reset to the default backup-paths.edn configuration file."
+            :handler (fn [_]
+                       {:status 200
+                        :body   {:paths-file (init/reset-default-backup-paths)}})}}]
+
     ["/load-backup-paths"
      {:post {:summary    "Specify a custom location for a backup-paths.edn configuration file."
              :parameters {:body {:path string?}}
