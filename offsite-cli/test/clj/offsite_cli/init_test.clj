@@ -11,12 +11,12 @@
 
     (let [short-paths (get-paths (str test-configs-dir "/short-backup-paths.edn"))]
       (is (not (nil? short-paths)))
-      (is (vector? short-paths))
-      (is (= 1 (count short-paths)))
-      (is (= "test/backup-data/active/du.out" (-> short-paths first :path))))
+      (is (vector? (:backup-paths short-paths)))
+      (is (= 1 (-> short-paths :backup-paths count)))
+      (is (= "test/backup-data/active/du.out" (-> short-paths :backup-paths first :path))))
 
     (let [paths       (get-paths (str test-configs-dir "/backup-paths.edn"))
-          second-path (second paths)]
+          second-path (-> paths :backup-paths second)]
       (is (= "test/backup-data/active/music" (:path second-path)))
       (let [excluded (:exclude second-path)]
         (is (vector? excluded))

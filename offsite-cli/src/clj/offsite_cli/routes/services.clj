@@ -55,7 +55,6 @@
 
     ["/get-backup-paths"
      {:get {:summary (str "display the current backup paths in: " (:paths-file @init/paths-config))
-            ;:responses (init/get-paths)
             :handler (fn [_]
                        (let [response (init/get-paths)]
                          {:status (if (not (nil? response)) 200 404)
