@@ -15,11 +15,14 @@
   path-defs     A backup path, with possible exclusions
 
   returns:     A backup block"
-  (let [file-dir (io/file path)]
-    {:root-path (.getCanonicalPath file-dir)
-     :file-dir   file-dir
-     :excludes  exclusions
-     :size      (if (.isDirectory file-dir) 0 (.length file-dir))}))
+  (let [file-dir (io/file path)
+        block   {:root-path  (.getCanonicalPath file-dir)
+                 :file-dir    file-dir
+                 :size       (if (.isDirectory file-dir) 0 (.length file-dir))}]
+    ;; only add the :exclusions kv pair if the exclusions vector has data
+    (if (or (nil? exclusions) (empty? exclusions))
+      block
+      (assoc block :exclusions exclusions))))
 
 (defn start [backup-paths]
   "Start processing the files in the backup paths, cataloguing current state, changed files

@@ -18,6 +18,6 @@
     (let [paths       (get-paths (str test-configs-dir "/backup-paths.edn"))
           second-path (-> paths :backup-paths second)]
       (is (= "test/backup-data/active/music" (:path second-path)))
-      (let [excluded (:exclude second-path)]
+      (let [excluded (:exclusions second-path)]
         (is (vector? excluded))
         (is (.contains excluded "medium"))))))
