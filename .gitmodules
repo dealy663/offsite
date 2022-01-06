@@ -1,0 +1,3 @@
+[submodule "xtdb"]
+	path = xtdb
+	url = https://github.com/dealy663/xtdb.git

@@ -6,7 +6,8 @@
     [offsite-cli.config :refer [env]]
     [clojure.tools.cli :refer [parse-opts]]
     [clojure.tools.logging :as log]
-    [mount.core :as mount])
+    [mount.core :as mount]
+    [offsite-cli.db.core :as db])
   (:gen-class))
 
 ;; log uncaught exceptions in threads
@@ -20,6 +21,10 @@
 (def cli-options
   [["-p" "--port PORT" "Port number"
     :parse-fn #(Integer/parseInt %)]])
+
+(mount/defstate db-node*
+  :start (db/start-db! env)
+  :stop  (db/stop-db! db-node*))
 
 (mount/defstate ^{:on-reload :noop} http-server
   :start
@@ -46,6 +51,8 @@
     (log/info component "stopped"))
   (shutdown-agents))
 
+;; Add some options that allow to override the location of config files. The default location will be the
+;; same directory that the program is installed to
 (defn start-app [args]
   (doseq [component (-> args
                         (parse-opts cli-options)

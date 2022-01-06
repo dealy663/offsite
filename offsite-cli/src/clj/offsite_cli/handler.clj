@@ -9,11 +9,12 @@
     [ring.middleware.content-type :refer [wrap-content-type]]
     [ring.middleware.webjars :refer [wrap-webjars]]
     [offsite-cli.env :refer [defaults]]
+    [offsite-cli.config :refer [env]]
     [mount.core :as mount]))
 
 (mount/defstate init-app
-  :start ((or (:init defaults) (fn [])))
-  :stop  ((or (:stop defaults) (fn []))))
+  :start ((or (:init defaults) (fn [] #_(db/start-xtdb! env))))
+  :stop  ((or (:stop defaults) (fn [] #_(db/stop-xtdb!)))))
 
 (mount/defstate app-routes
   :start
