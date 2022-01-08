@@ -1,6 +1,6 @@
 (ns offsite-cli.db.core-test
   (:require [clojure.test :refer :all]
-            [offsite-cli.core :refer [db-node*]]
+            [offsite-cli.db.core :refer [db-node*]]
             [xtdb.api :as xt]
             [mount.core :as mount]))
 
@@ -13,7 +13,7 @@
 (use-fixtures
   :once
   #(with-components [#'offsite-cli.config/env
-                     #'offsite-cli.core/db-node*] %))
+                     #'offsite-cli.db.core/db-node*] %))
 
 (defn full-query
   [node]

@@ -22,10 +22,6 @@
   [["-p" "--port PORT" "Port number"
     :parse-fn #(Integer/parseInt %)]])
 
-(mount/defstate db-node*
-  :start (db/start-db! env)
-  :stop  (db/stop-db! db-node*))
-
 (mount/defstate ^{:on-reload :noop} http-server
   :start
   (http/start

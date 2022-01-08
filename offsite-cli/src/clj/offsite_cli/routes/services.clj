@@ -9,8 +9,10 @@
     [reitit.ring.middleware.parameters :as parameters]
     [offsite-cli.middleware.formats :as formats]
     [offsite-cli.init :as init]
+    [offsite-cli.db.core :refer :all]
     [ring.util.http-response :refer :all]
-    [clojure.java.io :as io]))
+    [clojure.java.io :as io]
+    [xtdb.api :as xt]))
 
 (defn service-routes []
   ["/api"
@@ -49,6 +51,30 @@
 
    ["/ping"
     {:get (constantly (ok {:message "pong"}))}]
+
+   ;; if left unprotected the test api is a DOS attack vector, additional safeguards need
+   ;; to be implemented to make sure it isn't available in a production instance
+   ["/test"
+    {:swagger {:tags ["test"]}}
+
+    ["/db-touch"
+     {:put {:summary    "Writes a test document to the XTDB."
+            ;:headers    {"Accept" "application/edn"}
+            :parameters {:body {:doc string?}}
+            :handler    (fn [{{{:keys [doc]} :body} :parameters}]
+                          (let [inst (easy-ingest [{:xt/id :test-api-touch-id
+                                                    :doc   doc}])]
+                            {:status 200
+                             :body   {:tx-info inst}}))}}]
+
+    ["/db-last-touch"
+     {:get {:summary "Gets the last time the db-touch command was issued and full XTDB doc"
+            :handler (fn [_]
+                       (let [response (xt/entity-tx (xt/db db-node*) :test-api-touch-id)]
+                         {:status 200
+                          :body   {:tx-time (:xtdb.api/tx-time response)
+                                   :entity  (get-entity :test-api-touch-id)}}))}}]]
+
 
    ["/init"
     {:swagger {:tags ["init"]}}

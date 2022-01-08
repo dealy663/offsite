@@ -12,8 +12,10 @@ You will need [Leiningen][1] 2.0 or above installed.
 [1]: https://github.com/technomancy/leiningen
 
 If on an Intel Mac do:
-- Install java8 (going higher thank Java 8 is difficult for Apple M1 processors at this point)
-  - I suggest you stay with [Zulu JDK8](https://cdn.azul.com/zulu/bin/zulu8.58.0.13-ca-jdk8.0.312-macosx_aarch64.dmg) for now if on Apple M1
+- Java
+  - Install java8 (going higher thank Java 8 is difficult for Apple M1 processors at this point)
+    - I suggest you stay with [Zulu JDK8](https://cdn.azul.com/zulu/bin/zulu8.58.0.13-ca-jdk8.0.312-macosx_aarch64.dmg) for now if on Apple M1
+  - On my Intel Mac Zulu JDK8 resulted in a strange libcrypto load error, so I wound up using AdoptOpen JDK 8.0.292.j9-adpt installed with [SDKMan](https://sdkman.io/install). This seems to be working just fine.  
 - Install Clojure and build toolchain elements 
   - brew install leiningen
   - brew install clojure
