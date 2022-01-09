@@ -23,8 +23,9 @@
             block      (create-block (-> backup-cfg :backup-paths second))
             file-dir    (io/file (str backup-data-dir "/music"))]
         (is (= (.getCanonicalPath file-dir) (:root-path block)) "Block root-path mismatch")
-        (is (.isDirectory (:file-dir block)) "Loaded file-dir should be a directory")
-        (is (= file-dir (:file-dir block)) "Loaded file-dir doesn't match expected directory")
+        (is (.isDirectory (:file-dir block)) (str "Loaded file-dir (" (-> block :file-dir .getCanonicalPath)
+                                                 ") should be a directory"))
+        (is (= file-dir (:file-dir block)) ") Loaded file-dir doesn't match expected directory")
         (is (= 0 (:size block)) "A directory should start with a size of 0")
         (is (= ["medium" "large"] (:exclusions block)) "The loaded path exclusions don't match expected values")))
     (testing "Block creation with empty exclusions"
