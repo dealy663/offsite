@@ -3,3 +3,6 @@
 .DS_Store
 package-lock.json
 *.iml
+.idea
+XTDB-Tutorial/
+xtdb-test-app/
