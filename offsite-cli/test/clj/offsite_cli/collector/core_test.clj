@@ -18,6 +18,7 @@
         (is (nil? (:exclusions block)) "there should be no exclusions on short-backup-paths.edn")
         (is (= file-dir (:file-dir block)) "Loaded file doesn't match expected file")
         (is (= (.length file-dir) (:size block)))) "Block file size doesn't match expected file size")
+
     (testing "Block creation with exclusions"
       (let [backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
             block      (create-block (-> backup-cfg :backup-paths second))
@@ -28,8 +29,10 @@
         (is (= file-dir (:file-dir block)) ") Loaded file-dir doesn't match expected directory")
         (is (= 0 (:size block)) "A directory should start with a size of 0")
         (is (= ["medium" "large"] (:exclusions block)) "The loaded path exclusions don't match expected values")))
+
     (testing "Block creation with empty exclusions"
       (let [block      (create-block empty-exclude-path)]
         (is (= nil (:exclusions block)) "The loaded path exclusions don't match expected values")))
+
     (testing "Block creation (negative tests)"
       (is (thrown? NullPointerException (create-block nil)) "A nil block should throw an NPE"))))
