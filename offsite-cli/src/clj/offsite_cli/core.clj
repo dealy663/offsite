@@ -7,7 +7,7 @@
     [clojure.tools.cli :refer [parse-opts]]
     [clojure.tools.logging :as log]
     [mount.core :as mount]
-    [offsite-cli.db.core :as db])
+    [offsite-cli.db.db-core :as db])
   (:gen-class))
 
 ;; log uncaught exceptions in threads

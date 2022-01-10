@@ -1,6 +1,6 @@
-(ns offsite-cli.collector.core
+(ns offsite-cli.collector.col-core
   (:require [clojure.java.io :as io]
-            [offsite-cli.block-processor.core :as bp]))
+            [offsite-cli.block-processor.bp-core :as bp]))
 
 (def db-ref (ref   {:files             []
                     :backup-count     0

@@ -1,4 +1,4 @@
-(ns offsite-cli.db.core
+(ns offsite-cli.db.db-core
   (:require [clojure.java.io :as io]
             [xtdb.api :as xt]
             [mount.core :refer [defstate]]

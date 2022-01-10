@@ -9,7 +9,7 @@
     [reitit.ring.middleware.parameters :as parameters]
     [offsite-cli.middleware.formats :as formats]
     [offsite-cli.init :as init]
-    [offsite-cli.db.core :refer :all]
+    [offsite-cli.db.db-core :refer :all]
     [ring.util.http-response :refer :all]
     [clojure.java.io :as io]
     [xtdb.api :as xt]))

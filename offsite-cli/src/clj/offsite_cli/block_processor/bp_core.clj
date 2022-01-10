@@ -1,4 +1,4 @@
-(ns offsite-cli.block-processor.core)
+(ns offsite-cli.block-processor.bp-core)
 
 (def bp-data (ref {:started     false
                    :halt        false
