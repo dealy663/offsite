@@ -2,6 +2,7 @@
   (:require
     [offsite-cli.handler :as handler]
     [offsite-cli.nrepl :as nrepl]
+    [offsite-cli.collector.col-core]
     [luminus.http-server :as http]
     [offsite-cli.config :refer [env]]
     [clojure.tools.cli :refer [parse-opts]]

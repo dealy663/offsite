@@ -1,5 +1,7 @@
 (ns offsite-cli.collector.col-core
   (:require [clojure.java.io :as io]
+            [clojure.core.async :as a]
+            [offsite-cli.block-processor.bp-fsm :as bfsm]
             [offsite-cli.block-processor.bp-core :as bp]))
 
 (def db-ref (ref   {:files             []
@@ -20,9 +22,11 @@
                  :file-dir    file-dir
                  :size       (if (.isDirectory file-dir) 0 (.length file-dir))}]
     ;; only add the :exclusions kv pair if the exclusions vector has data
-    (if (or (nil? exclusions) (empty? exclusions))
-      block
-      (assoc block :exclusions exclusions))))
+    (let [return (if (or (nil? exclusions) (empty? exclusions))
+                      block
+                      (assoc block :exclusions exclusions))]
+      (a/>!! bp/chan return)
+      return)))
 
 (defn start [backup-paths]
   "Start processing the files in the backup paths, cataloguing current state, changed files
@@ -31,4 +35,4 @@
    params:
    backup-paths    A sequence of paths to recurse through containing the dirs to backup"
   (doseq [path-def backup-paths]
-    (-> path-def create-block bp/process-block)))
+    (create-block path-def)))
