@@ -2,6 +2,7 @@
   (:require [statecharts.core :as fsm]
             [clojure.core.async :as a]
             [mount.core :refer [defstate]]
+            [offsite-cli.channels :refer :all]
             [offsite-cli.block-processor.bp-core :as bp]))
 
 (declare create-machine start stop)
@@ -36,35 +37,24 @@
                :unprocessed {:on {:enqueued {:target  :unread
                                              :actions bp/add-block}}}}}))
 
+
 (defn start [service]
   "Start processing block-data from the queue, does nothing if the
    block-processor is already running"
 
-  (dosync
-    (when-not (:started @bp/bp-data)
-      (println "starting block-processor")
-      (alter bp/bp-data assoc-in [:started] true))
+  (when-not (:started @bp/bp-state)
+    (println "starting block-processor, started: " (:started @bp/bp-state))
+    (dosync (alter bp/bp-state assoc-in [:started] true)))
 
-    (fsm/start service)
+  (fsm/start service)
 
-    (a/go
-      (println "bp: in loop thread")
-      (dosync
-        (while (:started @bp/bp-data)
-          (println "bp: waiting for block")
-          (let [block (a/<!! bp/chan)]
-            (when-not (= :stop-bp block)
-              (println (str "received block: " block))
-              (alter bp/bp-data update-in [:queue] conj block)
-              (fsm/send fsm-svc {:type :enqueued :block block})))))
 
-      (println "block-processor stopped")))
   service)
 
 (defn stop []
   "Stops the block-processor, will wait for all blocks in queue to be finished."
 
-  (when (:started @bp/bp-data)
+  (when (:started @bp/bp-state)
 (println "bp: stopping")
-    (sync (alter bp/bp-data assoc-in [:started] false))
-    (a/>!! bp/chan :stop-bp)))
+    (dosync (alter bp/bp-state assoc-in [:started] false))
+    (put! :block-chan :stop-bp)))
