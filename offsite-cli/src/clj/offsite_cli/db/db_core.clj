@@ -85,7 +85,7 @@
     (if success?
       (log/info "Successfully started backup, id: " current-backup-uuid)
       (log/error "An error has occurred when trying to start a new backup."))
-    {:backup-uuid current-backup-uuid
+    {:backup-id   current-backup-uuid
      :tx-inst     tx-inst
      :tx-success? success?}))
 
