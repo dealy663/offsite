@@ -2,9 +2,9 @@
   (:require [clojure.java.io :as io]
             [clojure.core.async :as a]
             [offsite-cli.channels :refer :all]
-            #_[offsite-cli.collector.creator :as cr]
-            #_[offsite-cli.block-processor.bp-fsm :as bfsm]
-            #_[offsite-cli.block-processor.bp-core :as bp]))
+            [mount.core :as mount]
+            [offsite-cli.db.db-core :as db]
+            [clojure.tools.logging :as log]))
 
 (def stop-key :stop-collector)
 
@@ -14,6 +14,14 @@
                            :push-count   0
                            :total-bytes  0
                            :push-bytes   0}))
+
+(declare start stop)
+
+(mount/defstate collector-chans
+  :start (do
+           (new-channel! :path-chan stop-key)
+           #_(start))
+  :stop (stop))
 
 (defn create-block [{:keys [path exclusions] :as path-defs}]
   "Create a backup block
@@ -30,7 +38,7 @@
     (let [return (if (or (nil? exclusions) (empty? exclusions))
                       block
                       (assoc block :exclusions exclusions))]
-      (put! :block-chan return)
+      (put! :onsite-block-chan return)
       return)))
 
 ;(defn start [backup-paths]
@@ -51,12 +59,13 @@
   (when-not (:started @collector-state)
     (println "Starting Collector started: " (:started @collector-state))
 
-    (dosync (alter collector-state assoc-in [:started] true))
-
-    (doseq [path-def backup-paths]
-      (create-block path-def))
-    ;;(new-channel! :path-chan stop-key)
-    #_(path-listener)))
+    (try
+      (db/start-backup backup-paths :adhoc)
+      (dosync (alter collector-state assoc-in [:started] true))
+      (doseq [path-def backup-paths]
+        (create-block path-def))
+      (catch Exception e
+        (log/error "Collector stopped with exception: " (.getMessage e))))))
 
 (defn stop []
   "Stops the block-processor, will wait for all blocks in queue to be finished."

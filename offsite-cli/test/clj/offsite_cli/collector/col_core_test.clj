@@ -4,15 +4,14 @@
             [offsite-cli.channels :refer :all]
             [offsite-cli.init :as init]
             [clojure.java.io :as io]
-            [mount.core :as mount]
             [offsite-cli.block-processor.bp-core :as bp]))
 
 (use-fixtures
   :once
   (fn [f]
-    (new-channel! :block-chan bp/stop-key)
+    (new-channel! :onsite-block-chan bp/stop-key)
     (f)
-    (stop! :block-chan)))
+    (stop! :onsite-block-chan)))
 
 (def test-configs-dir "test/configurations")
 (def backup-data-dir "test/backup-data")

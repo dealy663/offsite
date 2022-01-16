@@ -47,7 +47,7 @@
 ;        (when-not (= :stop-creator backup-path)
 ;          (println (str "received backup path: " backup-path))
 ;
-;          (->> backup-path create-block (put! :block-chan))
+;          (->> backup-path create-block (put! ::onsite-block-chan))
 ;          #_(dosync (alter creator-atom update-in [:intake-q] conj backup-item))
 ;          #_(fsm/send fsm-svc {:type :enqueued :block block}))))
 ;

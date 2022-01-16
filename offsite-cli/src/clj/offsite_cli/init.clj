@@ -2,6 +2,7 @@
   (:require
     [clojure.edn :as edn]
     [mount.core :refer [defstate]]
+    [offsite-cli.block-processor.bp-core]
     [clojure.java.io :as io]))
 
 ;; Default name of backup paths configuration, which is expected to be found at the top-level of the installation

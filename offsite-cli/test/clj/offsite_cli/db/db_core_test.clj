@@ -1,8 +1,17 @@
 (ns offsite-cli.db.db-core-test
   (:require [clojure.test :refer :all]
-            [offsite-cli.db.db-core :refer [db-node*]]
+            [offsite-cli.db.db-core :refer [db-node*] :as dbc]
+            [offsite-cli.init :as init]
             [xtdb.api :as xt]
-            [mount.core :as mount]))
+            [mount.core :as mount]
+            [offsite-cli.system-utils :as su]
+            [offsite-cli.db.db-core :as db]))
+
+(def test-configs-dir "test/configurations")
+(def backup-data-dir "test/backup-data")
+(def empty-exclude-path {:path       "test/backup-data/music"
+                         :exclusions []})
+(def test-small-dir {:path "test/backup-data/music/small"})
 
 (defn- with-components
   [components f]
@@ -32,4 +41,23 @@
                                            :where [[e :user/name "zig"]]})
           id (-> result first first)]
       (is (= "hi2u" id)))))
+
+(deftest backup
+  (let [backup-cfg (init/get-paths (str test-configs-dir "/short-backup-paths.edn"))]
+    (testing "starting a backup"
+      (let [start-resp     (dbc/start-backup (:backup-paths backup-cfg) :adhoc)
+            current-backup (dbc/get-last-backup)]
+        ;(su/dbg-msg "start resp:" start-resp)
+        ;(su/dbg-msg "current backup:" current-backup)
+        ;(su/dbg-msg "Full db: " (db/full-query))
+        (is (= (:backup-paths backup-cfg) (:backup-paths current-backup))
+            "The :backup-paths of the query result should match the configuration's")
+        (is (= (:backup-uuid start-resp) (:backup-id current-backup))
+            "The :backup-uuid must match between the start-resp and the query result")
+        (is (= (su/offsite-id) (:xt/id current-backup))
+            "The :offsite-id of the query result doesn't match")))
+    (testing "Starting a backup while another is already in progress"
+      (let [result (dbc/start-backup (:backup-paths backup-cfg) :adhoc)]
+        ;(su/dbg-msg "start-backup result: " result)
+        (is (= false (:tx-success? result)))))))
 

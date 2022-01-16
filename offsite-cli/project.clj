@@ -1,7 +1,8 @@
 (defproject offsite-cli "0.1.0-SNAPSHOT"
 
-  :description "FIXME: write description"
-  :url "http://example.com/FIXME"
+  :description "The Offsite Client, for managing backups into the remote Offsite Nodes of the backup
+                collective group."
+  :url "http://offsite.grandprixsw.com/info"
 
   :dependencies [[ch.qos.logback/logback-classic "1.2.7"]
                  [cljs-ajax "0.8.4"]
@@ -43,10 +44,13 @@
                  [ring-webjars "0.2.0"]
                  [ring/ring-core "1.9.4"]
                  [ring/ring-defaults "0.3.3"]
+                 [org.clj-commons/digest "1.4.100"]
                  [selmer "1.12.45"]
                  [thheller/shadow-cljs "2.16.7" :scope "provided"]
 
-                 [clj-statecharts "0.1.1"]]
+                 ;; statecharts isn't used now and probably should be removed. But keeping comment
+                 ;; as this seems like it could be useful in the future
+                 #_[clj-statecharts "0.1.1"]]
 
   :min-lein-version "2.0.0"
   
