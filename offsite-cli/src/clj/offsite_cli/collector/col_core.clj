@@ -4,6 +4,7 @@
             [offsite-cli.channels :refer :all]
             [mount.core :as mount]
             [offsite-cli.db.db-core :as db]
+            [offsite-cli.channels :as ch]
             [clojure.tools.logging :as log]))
 
 (def stop-key :stop-collector)
@@ -23,23 +24,23 @@
            #_(start))
   :stop (stop))
 
-(defn create-block [{:keys [path exclusions] :as path-defs}]
+(defn create-block
   "Create a backup block
 
   params:
   path-defs     A backup path, with possible exclusions
 
   returns:     A backup block"
+  [{:keys [path exclusions] :as path-defs}]
+
   (let [file-dir (io/file path)
         block   {:root-path  (.getCanonicalPath file-dir)
                  :file-dir    file-dir
                  :size       (if (.isDirectory file-dir) 0 (.length file-dir))}]
     ;; only add the :exclusions kv pair if the exclusions vector has data
-    (let [return (if (or (nil? exclusions) (empty? exclusions))
-                      block
-                      (assoc block :exclusions exclusions))]
-      (put! :onsite-block-chan return)
-      return)))
+    (if (or (nil? exclusions) (empty? exclusions))
+      block
+      (assoc block :exclusions exclusions))))
 
 ;(defn start [backup-paths]
 ;  "Start processing the files in the backup paths, cataloguing current state, changed files
@@ -50,6 +51,13 @@
 ;  (doseq [path-def backup-paths]
 ;    (create-block path-def)))
 
+(defn path-processor
+  "Processes paths from the :path-chan in its own thread"
+  []
+
+  (a/go-loop []
+    (when-some [path (ch/take! :path-chan)]
+      )))
 (defn start [backup-paths]
   "Start process to wait for new paths from which to create onsite blocks.
 
@@ -63,7 +71,8 @@
       (db/start-backup backup-paths :adhoc)
       (dosync (alter collector-state assoc-in [:started] true))
       (doseq [path-def backup-paths]
-        (create-block path-def))
+        (-> (create-block path-def)
+            (ch/put! :onsite-block-chan)))
       (catch Exception e
         (log/error "Collector stopped with exception: " (.getMessage e))))))
 

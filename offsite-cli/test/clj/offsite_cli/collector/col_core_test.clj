@@ -57,10 +57,11 @@
             "The block should have no sub dirs")))
 
     (testing "Block creation with empty exclusions"
-      (let [block      (create-block empty-exclude-path)]
+      (let [block  (create-block empty-exclude-path)]
         (is (= nil (:exclusions block))
             "The loaded path exclusions don't match expected values")))
 
     (testing "Block creation (negative tests)"
       (is (thrown? NullPointerException (create-block nil))
           "A nil block should throw an NPE"))))
+

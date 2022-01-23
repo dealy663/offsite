@@ -5,7 +5,8 @@
      :doc          "Offsite Client System Utilities for interacting at the OS level"
      :no-doc       true}
    (:require [clojure.java.shell :as shell]
-            [clojure.string :as str])
+             [clojure.string :as str]
+             [clojure.tools.logging :as log])
    (:import [java.net InetAddress]
             (java.util UUID)))
 
@@ -57,15 +58,6 @@
 
    (str (:user-uuid (offsite-user-id)) "-" (hostname)))
 
-(defn dbg-msg
-   "Prints a debug message to the console
+(defmacro dbg [& messages]
+   `(log/debug "\n\t***------->>>" (str ~@messages)))
 
-    Params:
-    messages       Suitably printable objects"
-   [& messages]
-
-   (loop [messages     messages
-          out-str      ""]
-      (if (empty? messages)
-         (println "****----->>>" out-str)
-         (recur (rest messages) (str out-str (first messages))))))

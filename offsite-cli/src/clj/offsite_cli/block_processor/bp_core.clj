@@ -11,7 +11,9 @@
             [offsite-cli.channels :refer :all]
             [mount.core :as mount]
             [java-time :as t]
-            [offsite-cli.db.db-core :as db]))
+            [offsite-cli.db.db-core :as db]
+            [offsite-cli.system-utils :as su]
+            [clojure.tools.logging :as log]))
 
 (def stop-key :stop-bp)
 (def bp-state (ref {:started        false
@@ -55,7 +57,7 @@
    (get-checksum message clj-commons.digest/md5))
 
   ([message digest-fn]
-   (get-checksum message digest-fn)))
+   (digest-fn message)))
 
 (defn make-block-info
   "Create a block-info map for storing details in DB
@@ -72,19 +74,23 @@
    :last-modified   (.lastModified file)
    :hidden?        (.isHidden file)})
 
-(defn process-file [file-block]
+(defn process-file
   "Processes an onsite block which represents a file. The file can be read, disintegrated, encrypted
    and broadcast to nodes for offsite backup.
 
    Params:
-   file-block     The offsite block representing a file"
+   file-block     The offsite block representing a file
+
+   Returns file-state map if the object has changed and is to be backed up"
   [file-block]
 
   (let [file-info  (make-block-info (:file-dir file-block))
+        _ (su/dbg "Got block info: " file-info)
         file-state (or (db/get-ofs-block-state (:xt/id file-info))
                       (db/create-ofs-block-state file-info))]
-    (if-not (= (:checksum file-info) (:checksum file-state))
-      (split file-state file-block))))
+    (when-not (= (:checksum file-info) (:checksum file-state))
+      file-state
+      #_(split file-state file-block))))
 
 (defn process-dir [dir-block]
   "Processes an onsite block which represents a directory. The directory will have all of its
@@ -95,7 +101,8 @@
    dir-block     The onsite block representing a directory"
 
   (doseq [file (.listFiles (:file-dir dir-block))]
-    (dosync (alter bp-state update-in [:queue] conj (col/create-block {:file-dir file})))))
+    ;; add files to pathDB
+    #_(dosync (alter bp-state update-in [:queue] conj (col/create-block {:file-dir file})))))
 
 (defn process-block [block]
   "Handles an onsite block. If it refers to a file then it is read, disintegrated, encrypted and broadcast.
@@ -109,7 +116,7 @@
     (process-dir block)
     (process-file block))
   ;; after block has been processed remove it from block-data
-  (dosync (alter bp-state update-in [:onsite-block-q] rest)))
+  #_(dosync (alter bp-state update-in [:onsite-block-q] rest)))
 
 (defn get-client-info
   "Returns the client info map"
@@ -216,35 +223,58 @@
                                (db/create-ofs-block-state offsite-block-info))]
     (split block-state offsite-block)))
 
+(defn- onsite-block-handler
+  "Overridable logic for handling onsite blocks to prep for cataloguing and backup
+
+   Params:
+   block          The file-dir block that is ready for processing"
+  [block]
+
+  (when-not (= stop-key block)
+    (su/dbg "\n received block: " block)
+    (process-block block)))
+
 (defn onsite-block-listener
   "Starts a thread which listens to the ::onsite-block-chan for new blocks which need
-   to be processed"
-  []
+   to be processed
 
-  (a/go
-    (println "OnBL: in loop thread")
+   Params:
+   block-handler      (optional, default is (onsite-block-handler)), this is intended to be overridden in testing"
+  ([block-handler]
 
-    (while (:started @bp-state)
-      (println "OnBL: waiting for block" )
-      (let [block (take! :onsite-block-chan)]
-        (when-not (= stop-key block)
-          (println (str "\n received block: " block))
-          (process-block block)
-          #_(fsm/send fsm-svc {:type :enqueued :block block}))))
-    (println "OnBL: Closing ::onsite-block-chan.")
-    (close! :onsite-block-chan)
-    (println "OnBL: block-processor stopped")))
+   (su/dbg "Dispatching OnBL thread")
+   (a/go
+     (su/dbg "OnBL: in loop thread")
+
+     (loop [started (:started @bp-state)
+            break false]
+       (when-not (or break (not started))
+         (su/dbg "OnBL: waiting for block")
+         (let [block (a/<! (get-ch :onsite-block-chan))]
+           (if (nil? block)
+             (log/error "Retrieved nil from closed :onsite-block-channel, started: " started ", break: " break)
+             (do
+               (su/dbg "Took block off :onsite-block-chan, val: " block)
+               (block-handler block)
+               (recur (:started @bp-state) (= stop-key block))))))))
+   (su/dbg "OnBL: Closing ::onsite-block-chan.")
+   (close! :onsite-block-chan)
+   (su/dbg "OnBL: block-processor stopped"))
+
+  ([]
+   (onsite-block-listener onsite-block-handler)))
 
 (defn offsite-block-listener
   "Starts a thread which listens to the offsite-block channel for blocks that are
    ready for offsite broadcast"
   []
 
+  (su/dbg "dispatching OfBL thread")
   (a/go
     (println "OfBL: started loop thread for offsite-blocks")
     (while (:started @bp-state)
       (println "OfBL: waiting for next offsite block")
-      (let [offsite-block (take! :offsite-block-chan)]
+      (let [offsite-block (a/<! (get-ch :offsite-block-chan))]
         (when-not (= stop-key offsite-block)
           (println (str "OfBL: received offsite block: " (:root-dir offsite-block)))
           (backup-offsite offsite-block))))))
@@ -255,22 +285,49 @@
 ;  backup-block     A block of data for backup"
 ;  (alter bp-data update-in :queue conj backup-block))
 
+(defn- start-default
+  "Standard implementation of start, can be overridden in test by passing customized body"
+  []
 
+  (new-channel! :onsite-block-chan stop-key)
+  (new-channel! :offsite-block-chan stop-key)
+  (onsite-block-listener)
+  (offsite-block-listener))
 
-(defn start []
-  "Start processing block-data from the queue"
+(defn start
+  "Start processing block-data from the queue
 
-  (when-not (:started @bp-state)
-    (dosync (alter bp-state assoc-in [:started] true))
-    (new-channel! :onsite-block-chan stop-key)
-    (new-channel! :offsite-block-chan stop-key)
-    (onsite-block-listener)
-    (offsite-block-listener)))
+   Params:
+   start-impl        (optional - default is (start-default) can be overridden in tests"
+  ([start-impl]
 
-(defn stop []
-  "Stops the block-processor, will wait for all blocks in queue to be finished."
+   (when-not (:started @bp-state)
+     (su/dbg "Starting bp-core with impl fn: " start-impl)
+     (dosync (alter bp-state assoc-in [:started] true))
+     (start-impl)))
 
-  (when (:started @bp-state)
-    (dosync (alter bp-state assoc :started false))
-    (put! :onsite-block-chan stop-key)
-    (put! :offsite-block-chan stop-key)))
+  ([]
+   (start start-default)))
+
+(defn- stop-default
+  "Standard implementation of stop, can be overridden int est by passing customized body"
+  []
+
+  (a/go
+    (a/>! (get-ch :onsite-block-chan) stop-key)
+    (a/>! (get-ch :offsite-block-chan) stop-key)))
+
+(defn stop
+  "Stops the block-processor, will wait for all blocks in queue to be finished.
+
+   Params:
+   stop-impl          (optional - default is (stop-default) can be overridden in tests"
+  ([stop-impl]
+
+   (when (:started @bp-state)
+     (dosync (alter bp-state assoc :started false))
+     (stop-impl)))
+
+  ([]
+
+   (stop stop-default)))
