@@ -1,9 +1,9 @@
 (ns offsite-cli.block-processor.bp-core
-  ^{:author "Derek Ealy <dealy663@gmail.com>"
+  ^{:author       "Derek Ealy <dealy663@gmail.com>"
     :organization "http://grandprixsw.com"
     :date         "1/15/2022"
-    :doc    "Offsite-Client block processing "
-    :no-doc true}
+    :doc          "Offsite-Client block processing "
+    :no-doc       true}
   (:require [clojure.core.async :as a]
             [clj-commons.digest :refer :all]
             [clojure.java.io :as io]
@@ -13,8 +13,10 @@
             [java-time :as t]
             [offsite-cli.db.db-core :as db]
             [offsite-cli.system-utils :as su]
-            [clojure.tools.logging :as log]))
+            [clojure.tools.logging :as log])
+  (:import (java.io ByteArrayOutputStream)))
 
+(def max-block-chunk -1)                                    ;; A negative value means to read the whole file
 (def stop-key :stop-bp)
 (def bp-state (ref {:started        false
                     :halt           false
@@ -74,6 +76,21 @@
    :last-modified   (.lastModified file)
    :hidden?        (.isHidden file)})
 
+(defn create-ofs-block-state
+  "Creates a file-state map in preparation for writing to DB
+
+   Params:
+   ofs-blk-info      A ofs-blk-info map or vector of maps representing a file or dir prepared for backup
+
+   Returns a vector of block state maps"
+  [ofs-blk-info]
+
+  (when (some? ofs-blk-info)
+    (let [block-info-vec (if (vector? ofs-blk-info)
+                           ofs-blk-info
+                           [ofs-blk-info])]
+      (map #(assoc % :ver 0) block-info-vec))))
+
 (defn process-file
   "Processes an onsite block which represents a file. The file can be read, disintegrated, encrypted
    and broadcast to nodes for offsite backup.
@@ -86,8 +103,10 @@
 
   (let [file-info  (make-block-info (:file-dir file-block))
         _ (su/dbg "Got block info: " file-info)
-        file-state (or (db/get-ofs-block-state (:xt/id file-info))
-                      (db/create-ofs-block-state file-info))]
+        file-state (or (db/get-ofs-block-state! (:xt/id file-info))
+                      (let [state (create-ofs-block-state file-info)]
+                        (db/easy-ingest! state)
+                        state))]
     (when-not (= (:checksum file-info) (:checksum file-state))
       file-state
       #_(split file-state file-block))))
@@ -149,7 +168,7 @@
                 :last-response -1}]]
     (dosync (alter bp-state assoc-in [:offsite-nodes] nodes))))
 
-(defn send-block
+(defn send-block!
   "Sends an offsite block to a remote node for storage
 
    Params:
@@ -165,63 +184,92 @@
      :node     node
      :duration (- (t/instant) start-time)}))
 
-(defn broadcast
+(defn update-ofs-block-state
+  "Updates block state information after a block has been successfully stored offsite. This function
+   is intended to feed directly into e.g. (easy-ingest! (update-ofs-block-state bfs node))
+
+   Params:
+   block-state      State map of a block that was successfully backed up to an offsite node
+   response-node    The response of the best node that received the block
+
+   Returns the updated block-state"
+  [block-state response-node]
+
+  (let [new-block-state (update block-state :ver inc)]
+    (assoc new-block-state :last-node (:node response-node))))
+
+
+(defn broadcast!
   "Send the split, encrypted offsite block out to offsite-nodes for remote backup.
 
    Params:
-   block-state        DB state info for the block
-   offsite-block      A block representing a file (or sub-block) ready for offsite backup"
-  [block-state offsite-block]
+   prepped-block      A block fully prepared to be broadcast into the Offsite universe
+
+   Returns block-state with updated details on the broadcast"
+  [prepped-block]
 
   ;; this needs to be updated to send blocks to the offsite nodes in parallel
-  (let [offsite-nodes (:offsite-nodes @bp-state)]
+  (let [{:keys [block-state offsite-block chunk prep-state]} prepped-block
+        offsite-nodes (:offsite-nodes @bp-state)]
     (when offsite-nodes
       (loop [nodes         offsite-nodes
              best-response nil]
         (if-not nodes
-          (db/update-ofs-block-state block-state best-response)
+          (update-ofs-block-state block-state best-response)
           (let [node      (first nodes)
-                resp      (send-block node offsite-block)]
+                resp      (send-block! node offsite-block)]
             (recur (rest nodes)
                    (if (<= (:duration resp) (:duration (or best-response resp)))
                      resp
                      best-response))))))))
 
+(declare encrypt-chunk)
+
 (defn encrypt
   "Encrypt an offsite-block with the user's key. Then pass on to broadcast
 
    Params:
-   block-state        DB state info for the block
-   offsite-block      A block representing a file (or sub-block) ready for encryption"
-  [block-state offsite-block]
+   prepped-block      A block partially prepared for broadcast
 
-  ;; add logic to encrypt the file block
-  (broadcast block-state offsite-block))
+   Returns a partially prepared block that has encrypted/signed the chunk"
+  [prepped-block]
+
+  (let [{:keys [offsite-block block-state chunk prep-state]} prepped-block]
+    (assoc prepped-block :chunk      (encrypt-chunk chunk)
+                         :prep-state :encrypted)))
 
 (defn split
   "Splits an offsite file block into pieces no larger than max-block-size
 
    Params:
-   block-state        DB state info for block
-   offsite-block      A block representing a file ready for offsite backup"
+   prepped-block      A block partially prepared for broadcast
 
-  [block-state offsite-block]
+   Returns a partially prepared block with the file being split and the next chunk to be prepped"
+  [prepped-block]
 
-  ;; add logic for breaking up the file and passing it off to encrypt
-  (encrypt block-state offsite-block))
+  (let [{:keys [offsite-block block-state input-stream]} prepped-block]
+    ;; open file
+    (with-open [output-stream   (ByteArrayOutputStream.)]
+      ;; read max-chunk bytes into buffer
+      (io/copy input-stream output-stream :buf-size max-block-chunk)
+      (assoc prepped-block :chunk      (.toByteArray output-stream)
+                           :prep-state :chunked))               ;; I think this copies the whole file
+    ;; add open file to partial-block
+))
 
-(defn backup-offsite
+(defn prepare-offsite-block!
   "Define the process for prepping an offsite-block for backup and broadcasting the prepped
    offsite-block to the nodes provided by offsite-svc
 
    Params:
-   offsite-block    The block representing a file or directory ready for offsite backup"
-  [offsite-block]
+   prepped-block      A block partially prepared for broadcast
 
-  (let [offsite-block-info (make-block-info (:file-dir offsite-block))
-        block-state        (or (db/get-ofs-block-state offsite-block-info)
-                               (db/create-ofs-block-state offsite-block-info))]
-    (split block-state offsite-block)))
+   Returns map for next phase of prepping block for broadcast"
+  [prepped-block]
+
+  (let [{:keys [offsite-block block-state]} prepped-block]
+    (assoc prepped-block :input-stream (io/input-stream (:file-dir offsite-block))
+                         :prep-state   :opened)))
 
 (defn- onsite-block-handler
   "Overridable logic for handling onsite blocks to prep for cataloguing and backup
@@ -264,12 +312,24 @@
   ([]
    (onsite-block-listener onsite-block-handler)))
 
-(defn offsite-block-listener
-  "Starts a thread which listens to the offsite-block channel for blocks that are
-   ready for offsite broadcast"
-  []
+(defn get-block-state!
+  "Retrieves existing offsite block state from the DB or creates on if this is a new block
 
-  (su/dbg "dispatching OfBL thread")
+   Params:
+   offsite-block     A block to be prepared for broadcast
+
+   Returns a block-state map from the DB"
+  [offsite-block]
+
+  (let [offsite-block-info (make-block-info (:file-dir offsite-block))]
+    (or (db/get-ofs-block-state! offsite-block-info)
+        (let [state (create-ofs-block-state offsite-block-info)]
+          (db/easy-ingest! state)
+          state))))
+
+(defn- offsite-block-listener-default
+  ""
+  []
   (a/go
     (println "OfBL: started loop thread for offsite-blocks")
     (while (:started @bp-state)
@@ -277,7 +337,25 @@
       (let [offsite-block (a/<! (get-ch :offsite-block-chan))]
         (when-not (= stop-key offsite-block)
           (println (str "OfBL: received offsite block: " (:root-dir offsite-block)))
-          (backup-offsite offsite-block))))))
+          (-> offsite-block
+              (get-block-state!)
+              (prepare-offsite-block!)
+              (split)
+              (encrypt)
+              (broadcast!)
+              (db/easy-ingest!)))))))
+
+(defn offsite-block-listener
+  "Starts a thread which listens to the offsite-block channel for blocks that are
+   ready for offsite broadcast"
+  ([offsite-block-listener-impl]
+
+   (su/dbg "dispatching OfBL thread")
+   (offsite-block-listener-impl))
+
+  ([]
+   (offsite-block-listener offsite-block-listener-default)))
+
 ;(defn add-block [backup-block]
 ;  "Add a backup block to the block-data queue
 ;

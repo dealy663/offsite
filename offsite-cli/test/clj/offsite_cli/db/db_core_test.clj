@@ -55,8 +55,8 @@
 (deftest backup
   (let [backup-cfg (init/get-paths (str test-configs-dir "/short-backup-paths.edn"))]
     (testing "starting a backup"
-      (let [start-resp     (dbc/start-backup (:backup-paths backup-cfg) :adhoc)
-            current-backup (dbc/get-last-backup)]
+      (let [start-resp     (dbc/start-backup! (:backup-paths backup-cfg) :adhoc)
+            current-backup (dbc/get-last-backup!)]
         ;(su/dbg "start resp:" start-resp)
         ;(su/dbg "current backup:" current-backup)
         ;(su/dbg "Full db: " (db/full-query))
@@ -74,10 +74,25 @@
             "The :backup-id field of the current-backup doesn't match the one that was returned by start-backup")))
 
     (testing "Starting a backup while another is already in progress"
-      (let [result (dbc/start-backup (:backup-paths backup-cfg) :adhoc)]
+      (let [result (dbc/start-backup! (:backup-paths backup-cfg) :adhoc)]
         ;(su/dbg "start-backup result: " result)
         (is (= false (:tx-success? result))
             "The start-backup function should return false if another backup is already in progress")))))
+
+(defn validate-ofs-block
+  ""
+  [block-state tx-info ]
+
+  (is (= true (some? block-state))
+      "A valid backup path and block-info should return a representative block-state")
+  (is (= true (pos-int? (:xtdb.api/tx-id tx-info)))
+      "A newly created block state should have a :tx/id")
+  (let [dur (-> (jt/instant)
+                (jt/duration (:xtdb.api/tx-time tx-info))
+                .abs
+                .toMillis)]
+    (is (= true (< dur 5000))
+        (str "Duration: " dur " (ms) to write the block to DB was greater than 5 sec."))))
 
 (deftest create-ofs-block-state-test
     (let [backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
@@ -85,27 +100,29 @@
           block      (col/create-block file-path)
           block-info (bp/make-block-info (:file-dir block))]
       (testing "create-ofs-block-state"
-        (is (= nil (db/create-ofs-block-state nil))
+        (is (= nil (bp/create-ofs-block-state nil))
             "Creating ofs-block for a non-existing block-info should return nil")
-        (let [tx-info (db/create-ofs-block-state block-info)
-              _ (su/dbg "returned block-state: " tx-info)
+        (let [block-state (bp/create-ofs-block-state block-info)
+              tx-info     (db/easy-ingest! block-state)
+              _ (su/dbg "returned block-state: " block-state)
               file         (:file-dir block)]
-          (is (= true (some? tx-info))
-              "A valid backup path and block-info should return a representative block-state")
-          (is (= true (pos-int? (:xtdb.api/tx-id tx-info)))
-              "A newly created block state should have a :tx/id")
-          (let [dur (-> (jt/instant)
-                        (jt/duration (:xtdb.api/tx-time tx-info))
-                        .abs
-                        .toMillis)]
-            (is (= true (< dur 5000))
-                (str "Duration: " dur " (ms) to write the block to DB was greater than 5 sec.")))))))
+          (validate-ofs-block block-state tx-info)))))
 
 (deftest get-ofs-block-state-test
   (let [backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
         file-path   (-> backup-cfg :backup-paths first)]
-    (testing "get-ofs-block-state"
-      (let [result (db/get-ofs-block-state :nonsense)]
+    (testing "empty get-ofs-block-state"
+      (let [result (db/get-ofs-block-state! :nonsense)]
         (is (= nil result)
-            "A non-existing file block should return nil")))))
+            "A non-existing file block should return nil")))
+
+    (testing "Retrieving ofs block-state from DB"
+      (let [backup-cfg      (init/get-paths (str test-configs-dir "/backup-paths.edn"))
+            file-path        (-> backup-cfg :backup-paths first) ;; first path is file du.out
+            block           (col/create-block file-path)
+            block-info      (bp/make-block-info (:file-dir block))
+            block-state-vec (bp/create-ofs-block-state block-info)
+            tx-info         (db/easy-ingest! block-state-vec)]
+        (validate-ofs-block (db/get-ofs-block-state! (:xt/id block-info))
+                            tx-info)))))
 

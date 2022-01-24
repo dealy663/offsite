@@ -62,8 +62,8 @@
             ;:headers    {"Accept" "application/edn"}
             :parameters {:body {:doc string?}}
             :handler    (fn [{{{:keys [doc]} :body} :parameters}]
-                          (let [inst (easy-ingest [{:xt/id :test-api-touch-id
-                                                    :doc   doc}])]
+                          (let [inst (easy-ingest! [{:xt/id :test-api-touch-id
+                                                     :doc   doc}])]
                             {:status 200
                              :body   {:tx-info inst}}))}}]
 
@@ -73,7 +73,7 @@
                        (let [response (xt/entity-tx (xt/db db-node*) :test-api-touch-id)]
                          {:status 200
                           :body   {:tx-time (:xtdb.api/tx-time response)
-                                   :entity  (get-entity :test-api-touch-id)}}))}}]]
+                                   :entity  (get-entity! :test-api-touch-id)}}))}}]]
 
 
    ["/init"

@@ -68,7 +68,7 @@
     (println "Starting Collector started: " (:started @collector-state))
 
     (try
-      (db/start-backup backup-paths :adhoc)
+      (db/start-backup! backup-paths :adhoc)
       (dosync (alter collector-state assoc-in [:started] true))
       (doseq [path-def backup-paths]
         (-> (create-block path-def)

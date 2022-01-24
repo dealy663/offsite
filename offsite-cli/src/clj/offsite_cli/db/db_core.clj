@@ -19,20 +19,24 @@
 (defn stop-db! [node]
   (.close node))
 
-(defn full-query []
+(defn- full-query!
+  "Queries the whole DB and will bring it all into memory, this should only be used during testing"
+  []
   (xt/q
     (xt/db db-node*)
     '{:find [(pull e [*])]
       :where [[e :xt/id id]]}))
 
-(defn get-entity [entity-id]
+(defn get-entity!
   "Fetch a full entity doc from XTDB by its ID
 
   @Params
   entity-id     The :xt/id of the document being requested"
+  [entity-id]
+
   (xt/entity (xt/db db-node*) entity-id))
 
-(defn easy-ingest
+(defn easy-ingest!
   "Use XTDB put transaction to add a vector of documents to the db-node*
 
   @Params
@@ -47,16 +51,16 @@
                   (vec (for [doc docs]
                          [::xt/put doc])))))
 
-(defn get-last-backup
+(defn get-last-backup!
   "Returns the DB doc for the last or current backup."
   []
 
-  (let [backup-doc (get-entity (su/offsite-id))]
+  (let [backup-doc (get-entity! (su/offsite-id))]
     (if (empty? backup-doc)
       (log/warn "No previous backup document exists, this should only happen once after first install.")
       backup-doc)))
 
-(defn start-backup
+(defn start-backup!
   "Creates a new backup operation in the DB.
 
    Params:
@@ -67,7 +71,7 @@
   [backup-paths backup-type]
 
   ;; probably need to do a match here to ensure that only one backup is active at a time
-  (let [last-backup         (get-last-backup)
+  (let [last-backup         (get-last-backup!)
         current-backup-uuid (UUID/randomUUID)
         matcher             [::xt/match
                              (su/offsite-id)
@@ -102,7 +106,7 @@
 
   )
 
-(defn get-ofs-block-state
+(defn get-ofs-block-state!
   "Retrieves the latest file state info from the DB
 
    Params:
@@ -111,37 +115,8 @@
    Returns a file info map"
   [file-id]
 
-  (get-entity file-id))
+  (get-entity! file-id))
 
-(defn create-ofs-block-state
-  "Creates a file-state map and writes it to the DB
-
-   Params:
-   ofs-blk-info      A ofs-blk-info map or vector of maps representing a file or dir prepared for backup
-
-   Returns a vector of tx #inst for every block added"
-  [ofs-blk-info]
-
-  (when (some? ofs-blk-info)
-    (let [block-info-vec (if (vector? ofs-blk-info)
-                           ofs-blk-info
-                           [ofs-blk-info])
-          block-info-vec (map #(assoc % :ver 0) block-info-vec)]
-      (easy-ingest block-info-vec))))
-
-(defn update-ofs-block-state
-  "Updates block state information after a block has been successfully stored offsite
-
-   Params:
-   block-state      State map of a block that was successfully backed up to an offsite node
-   response-node    The response of the best node that received the block
-
-   Returns the #inst of the DB update TX"
-  [block-state response-node]
-
-  (let [new-block-state (update block-state :ver inc)
-        new-block-state (assoc new-block-state :last-node (:node response-node))]
-    (easy-ingest new-block-state)))
 
 ;(defn start-xtdb! [env]
 ;  (letfn [(kv-store [dir]
