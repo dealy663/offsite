@@ -1,17 +1,20 @@
 (ns offsite-cli.db.db-core-test
   (:require [clojure.test :refer :all]
             [clojure.java.io :as io]
-            [java-time :as jt]
             [offsite-cli.db.db-core :refer [db-node*] :as dbc]
             [offsite-cli.init :as init]
             [xtdb.api :as xt]
             [mount.core :as mount]
+            [offsite-cli.test-utils :as tu]
             [offsite-cli.system-utils :as su]
             [offsite-cli.channels :as ch]
             [offsite-cli.db.db-core :as db]
             [offsite-cli.block-processor.bp-core :as bp]
             [offsite-cli.collector.col-core :as col]
-            [clojure.core.async :as a]))
+            [clojure.core.async :as a])
+  (:import [java.io File]
+           (org.slf4j LoggerFactory)
+           (ch.qos.logback.classic Level)))
 
 (def test-configs-dir "test/configurations")
 (def backup-data-dir "test/backup-data")
@@ -33,6 +36,11 @@
   :once
   #(with-components [#'offsite-cli.config/env
                      #'offsite-cli.db.db-core/db-node*] %))
+
+(doto
+  (LoggerFactory/getLogger "xtdb.query")
+  (.setLevel (Level/valueOf "warn")))
+
 
 (defn full-query
   [node]
@@ -79,35 +87,6 @@
         (is (= false (:tx-success? result))
             "The start-backup function should return false if another backup is already in progress")))))
 
-(defn validate-ofs-block
-  ""
-  [block-state tx-info ]
-
-  (is (= true (some? block-state))
-      "A valid backup path and block-info should return a representative block-state")
-  (is (= true (pos-int? (:xtdb.api/tx-id tx-info)))
-      "A newly created block state should have a :tx/id")
-  (let [dur (-> (jt/instant)
-                (jt/duration (:xtdb.api/tx-time tx-info))
-                .abs
-                .toMillis)]
-    (is (= true (< dur 5000))
-        (str "Duration: " dur " (ms) to write the block to DB was greater than 5 sec."))))
-
-(deftest create-ofs-block-state-test
-    (let [backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
-          file-path   (-> backup-cfg :backup-paths first)
-          block      (col/create-block file-path)
-          block-info (bp/make-block-info (:file-dir block))]
-      (testing "create-ofs-block-state"
-        (is (= nil (bp/create-ofs-block-state nil))
-            "Creating ofs-block for a non-existing block-info should return nil")
-        (let [block-state (bp/create-ofs-block-state block-info)
-              tx-info     (db/easy-ingest! block-state)
-              _ (su/dbg "returned block-state: " block-state)
-              file         (:file-dir block)]
-          (validate-ofs-block block-state tx-info)))))
-
 (deftest get-ofs-block-state-test
   (let [backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
         file-path   (-> backup-cfg :backup-paths first)]
@@ -117,12 +96,12 @@
             "A non-existing file block should return nil")))
 
     (testing "Retrieving ofs block-state from DB"
-      (let [backup-cfg      (init/get-paths (str test-configs-dir "/backup-paths.edn"))
-            file-path        (-> backup-cfg :backup-paths first) ;; first path is file du.out
-            block           (col/create-block file-path)
-            block-info      (bp/make-block-info (:file-dir block))
-            block-state-vec (bp/create-ofs-block-state block-info)
-            tx-info         (db/easy-ingest! block-state-vec)]
-        (validate-ofs-block (db/get-ofs-block-state! (:xt/id block-info))
-                            tx-info)))))
+      (let [backup-cfg         (init/get-paths (str test-configs-dir "/backup-paths.edn"))
+            file-path           (-> backup-cfg :backup-paths first) ;; first path is file du.out
+            block              (col/create-block file-path)
+            block-info         (bp/make-block-info (:file-dir block))
+            block-state-vec    (bp/create-ofs-block-state block-info)
+            tx-info            (db/easy-ingest! block-state-vec)]
+        (tu/validate-ofs-block (db/get-ofs-block-state! (:xt/id block-info))
+                               tx-info)))))
 

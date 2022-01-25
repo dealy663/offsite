@@ -115,7 +115,10 @@
    Returns a file info map"
   [file-id]
 
-  (get-entity! file-id))
+  (let [ofs-block (get-entity! file-id)]
+    (when (nil? ofs-block)
+      (log/warn "OFS block: " file-id " not found."))
+    ofs-block))
 
 
 ;(defn start-xtdb! [env]

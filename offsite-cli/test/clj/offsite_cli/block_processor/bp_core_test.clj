@@ -1,6 +1,6 @@
 (ns offsite-cli.block-processor.bp-core-test
-  (:require [clojure.test :refer :all])
-  (:require [offsite-cli.block-processor.bp-core :refer [start]]
+  (:require [clojure.test :refer :all]
+            [offsite-cli.block-processor.bp-core :refer [start]]
             [clojure.core.async :as a]
             [offsite-cli.channels :as ch]
             [offsite-cli.block-processor.bp-core :as bp]
@@ -8,7 +8,12 @@
             [offsite-cli.collector.col-core :as col]
             [offsite-cli.init :as init]
             [mount.core :as mount]
-            [clojure.java.io :as io]))
+            [clojure.java.io :as io]
+            [offsite-cli.db.db-core :as db]
+            [offsite-cli.test-utils :as tu])
+  (:import [java.io File]
+           (org.slf4j LoggerFactory)
+           (ch.qos.logback.classic Level)))
 
 (def test-configs-dir "test/configurations")
 (def backup-data-dir "test/backup-data")
@@ -29,6 +34,10 @@
   :once
   #(with-components [#'offsite-cli.config/env
                      #'offsite-cli.db.db-core/db-node*] %))
+
+;(doto
+;  (LoggerFactory/getLogger "xtdb.query")
+;  (.setLevel (Level/valueOf "warn")))
 
 (defn simple-block-handler
   [done-chan]
@@ -113,11 +122,11 @@
 ;        (is (= :test-complete (a/<!! done-chan))
 ;            "Unexpected value on done-chan, expecting :test-complete"))
 ;      (bp/stop bp-stop-test-impl)
-;
-;
-;
-;      #_(let [block (col/create-block (second backup-cfg))]
-;          (su/dbg "block that was created: " block)))))
+
+
+
+      ;#_(let [block (col/create-block (second backup-cfg))]
+      ;    (su/dbg "block that was created: " block)))))
 
 ;(deftest process-file-test
 ;  (let [backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
@@ -168,3 +177,34 @@
             "The block-info checksum should match that of the file it represents")
         (is (= (.lastModified file) (:last-modified block-info))
             "The block-info last-modified time should match that of the file it represents")))))
+
+(deftest create-ofs-block-state-test
+  (let [backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
+        file-path   (-> backup-cfg :backup-paths first)
+        block      (col/create-block file-path)
+        block-info (bp/make-block-info (:file-dir block))]
+    (testing "create-ofs-block-state"
+      (is (= nil (bp/create-ofs-block-state nil))
+          "Creating ofs-block for a non-existing block-info should return nil")
+      (let [block-state (bp/create-ofs-block-state block-info)
+            tx-info     (db/easy-ingest! block-state)
+            _ (su/dbg "returned block-state: " block-state)
+            file         (:file-dir block)]
+        (tu/validate-ofs-block block-state tx-info)))))
+
+
+(deftest process-file-test
+  (let [                                                    ;backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
+        tmp-file    (File/createTempFile "tmp" nil)
+        file-path   {:path (.getPath tmp-file)}]
+    (testing "Processing a block representing a single file"
+      (let [block       (col/create-block file-path)
+            block-info  (bp/make-block-info (:file-dir block))
+            block-state (bp/create-ofs-block-state block-info)
+            tx-info     (db/easy-ingest! block-state)
+            file-state   (bp/process-file block)]
+        (is (= true (some? file-state))
+            "Processing a valid file block should not return nil")
+        (su/dbg "process-file gave back file-state: " file-state)
+        (is (= (if (.isDirectory tmp-file) :dir :file) (:type file-state))
+            "The block being processed is a file, the state map should match")))))

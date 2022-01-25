@@ -89,7 +89,8 @@
     (let [block-info-vec (if (vector? ofs-blk-info)
                            ofs-blk-info
                            [ofs-blk-info])]
-      (map #(assoc % :ver 0) block-info-vec))))
+      (su/dbg "create-ofs-block-state: block-info-vec - " block-info-vec)
+      (map #(assoc % :version 0) block-info-vec))))
 
 (defn process-file
   "Processes an onsite block which represents a file. The file can be read, disintegrated, encrypted
@@ -98,16 +99,20 @@
    Params:
    file-block     The offsite block representing a file
 
-   Returns file-state map if the object has changed and is to be backed up"
+   Returns file-state map if the object is new or has changed and is to be backed up"
   [file-block]
 
   (let [file-info  (make-block-info (:file-dir file-block))
         _ (su/dbg "Got block info: " file-info)
         file-state (or (db/get-ofs-block-state! (:xt/id file-info))
                       (let [state (create-ofs-block-state file-info)]
-                        (db/easy-ingest! state)
-                        state))]
-    (when-not (= (:checksum file-info) (:checksum file-state))
+                        (su/dbg "created-ofs-block-state: " (:first state))
+                        (su/dbg "easy-ingest! output: " (db/easy-ingest! state))
+                        (:first state)))]
+    (su/dbg "process-file: fetched block-state - " file-state)
+    (when (or (nil? (:version file-state))
+              (> 1 (:version file-state))
+              (not (= (:checksum file-info) (:checksum file-state))))
       file-state
       #_(split file-state file-block))))
 
