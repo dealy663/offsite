@@ -14,7 +14,8 @@
             [offsite-cli.db.db-core :as db]
             [offsite-cli.system-utils :as su]
             [clojure.tools.logging :as log])
-  (:import (java.io ByteArrayOutputStream)))
+  (:import (java.io ByteArrayOutputStream)
+           (org.apache.commons.lang3 NotImplementedException)))
 
 (def max-block-chunk -1)                                    ;; A negative value means to read the whole file
 (def stop-key :stop-bp)
@@ -97,12 +98,12 @@
    and broadcast to nodes for offsite backup.
 
    Params:
-   file-block     The offsite block representing a file
+   ons-file-block     The offsite block representing a file
 
    Returns file-state map if the object is new or has changed and is to be backed up"
-  [file-block]
+  [ons-file-block]
 
-  (let [file-info  (make-block-info (:file-dir file-block))
+  (let [file-info  (make-block-info (:file-dir ons-file-block))
         _ (su/dbg "Got block info: " file-info)
         file-state (or (db/get-ofs-block-state! (:xt/id file-info))
                       (let [state (create-ofs-block-state file-info)]
@@ -116,24 +117,31 @@
       file-state
       #_(split file-state file-block))))
 
-(defn process-dir [dir-block]
+(defn process-dir
   "Processes an onsite block which represents a directory. The directory will have all of its
    children enqueued for block processing and finally the directory itself will be entered
    into the onsite DB and broadcast to nodes for offsite backup.
 
    Params:
-   dir-block     The onsite block representing a directory"
+   ons-dir-block     The onsite block representing a directory
 
-  (doseq [file (.listFiles (:file-dir dir-block))]
+   Returns an offsite block for a directory to be prepped for backup"
+  [ons-dir-block]
+
+  (doseq [file (.listFiles (:file-dir ons-dir-block))]
+    (throw (.NotImplementedException "process-dir not ready"))
     ;; add files to pathDB
     #_(dosync (alter bp-state update-in [:queue] conj (col/create-block {:file-dir file})))))
 
-(defn process-block [block]
+(defn process-block
   "Handles an onsite block. If it refers to a file then it is read, disintegrated, encrypted and broadcast.
    If it is a directory then a new block for the directory is created and entered into the block queue
 
    Params:
-   block        The onsite block to be processed"
+   block        The onsite block to be processed
+
+   Returns an empty offsite block ready to be prepped for backup"
+  [block]
 
   ;; If the block is a file
   (if (.isDirectory (:file-dir block))
@@ -200,8 +208,10 @@
    Returns the updated block-state"
   [block-state response-node]
 
-  (let [new-block-state (update block-state :ver inc)]
-    (assoc new-block-state :last-node (:node response-node))))
+  (-> block-state
+      (update :ver inc)
+      (dissoc :file-dir)
+      (assoc  :last-node (:node response-node))))
 
 
 (defn broadcast!
@@ -285,7 +295,9 @@
 
   (when-not (= stop-key block)
     (su/dbg "\n received block: " block)
-    (process-block block)))
+    (->> block
+        (process-block)
+        (put! :offsite-block-chan))))
 
 (defn onsite-block-listener
   "Starts a thread which listens to the ::onsite-block-chan for new blocks which need
@@ -338,14 +350,16 @@
   (a/go
     (println "OfBL: started loop thread for offsite-blocks")
     (while (:started @bp-state)
-      (println "OfBL: waiting for next offsite block")
+      (su/dbg "OfBL: waiting for next offsite block")
       (let [offsite-block (a/<! (get-ch :offsite-block-chan))]
         (when-not (= stop-key offsite-block)
-          (println (str "OfBL: received offsite block: " (:root-dir offsite-block)))
+          (su/dbg (str "OfBL: received offsite block: " (:root-dir offsite-block)))
           (-> offsite-block
-              (get-block-state!)
+              ;(get-block-state!)
+
+;; remember that you must indicate the previous block in the backup chain, sub-node, parent dir, previous file etc
               (prepare-offsite-block!)
-              (split)
+              (split)                                       ;; This is where a payload is added
               (encrypt)
               (broadcast!)
               (db/easy-ingest!)))))))
