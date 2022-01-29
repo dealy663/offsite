@@ -2,7 +2,7 @@
   (:require
     [clojure.edn :as edn]
     [mount.core :refer [defstate]]
-    [offsite-cli.block-processor.bp-core]
+    [offsite-cli.block-processor.onsite]
     [clojure.java.io :as io]))
 
 ;; Default name of backup paths configuration, which is expected to be found at the top-level of the installation
@@ -18,20 +18,22 @@
            (get-paths)
            paths-config))
 
-(defn reset-default-backup-paths []
-  "Reset the configuration to use the default backup-paths.edn flle."
+(defn reset-default-backup-paths
+  "Reset the configuration to use the default backup-paths.edn file."
+  []
 
   (swap! backup-paths assoc :paths-file default-paths-file)
   (:paths-file @backup-paths))
 
 ;; should we adapt this to take an optional override to paths-config?
-(defn get-paths [& paths-override]
+(defn get-paths
   "Get the paths to be backed up, use those specified in backup-paths.edn or prompt the user to define
    the paths to be backed up
 
    Params:
    path-override   (optional) Set a custom file for the backup-paths.edn config file,
                    in the future we probably should support merging multiple path configs"
+  [& paths-override]
 
   (let [paths-file (or (first paths-override) (:paths-file @paths-config))]
     (if (.exists (io/as-file paths-file))

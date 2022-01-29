@@ -3,23 +3,30 @@
             [offsite-cli.block-processor.bp-core :refer [start]]
             [clojure.core.async :as a]
             [offsite-cli.channels :as ch]
-            [offsite-cli.block-processor.bp-core :as bp]
+            [offsite-cli.block-processor.bp-core :as bpc]
+            [offsite-cli.block-processor.onsite :as bpon]
             [offsite-cli.system-utils :as su]
             [offsite-cli.collector.col-core :as col]
             [offsite-cli.init :as init]
             [mount.core :as mount]
             [clojure.java.io :as io]
             [offsite-cli.db.db-core :as db]
-            [offsite-cli.test-utils :as tu])
+            [offsite-cli.test-utils :as tu]
+            [clojure.string :as str])
   (:import [java.io File]
-           (org.slf4j LoggerFactory)
-           (ch.qos.logback.classic Level)))
+           [java.nio.file Files]
+           (java.util UUID)))
 
 (def test-configs-dir "test/configurations")
 (def backup-data-dir "test/backup-data")
 (def empty-exclude-path {:path       "test/backup-data/music"
                          :exclusions []})
 (def test-small-dir {:path "test/backup-data/music/small"})
+
+(def current-backup-uuid (UUID/randomUUID))
+(def test-backup-info {:backup-id   current-backup-uuid
+                       :tx-inst     :test
+                       :tx-success? true})
 
 (defn- with-components
   [components f]
@@ -43,7 +50,7 @@
   [done-chan]
 
   (fn [block]
-    (when-not (= block bp/stop-key)
+    (when-not (= block bpc/stop-key)
       (su/dbg "Received block: " block))
     (a/>!! done-chan block)))
 
@@ -55,16 +62,16 @@
 
   (su/dbg "returning testing start logic fn, with handler: " handler)
   (fn []
-    (ch/new-channel! :onsite-block-chan bp/stop-key)
+    (ch/new-channel! :onsite-block-chan bpc/stop-key)
     ;(ch/new-channel! :offsite-block-chan bp/stop-key)
-    (bp/onsite-block-listener handler)
+    (bpon/onsite-block-listener handler)
     #_(offsite-block-listener)))
 
 (defn chan-stop-test-impl
   "Test implementation of stop"
   []
 
-  (ch/put!d :onsite-block-chan bp/stop-key)
+  (ch/put!d :onsite-block-chan bpc/stop-key)
   ;(ch/put! :onsite-block-chan bp/stop-key)
   #_(ch/put! :offsite-block-chan bp/stop-key)
   :stopped)
@@ -138,14 +145,14 @@
 
 (deftest start-stop-test
   (testing "Start and stop of bp-core functions as expected"
-    (is (= false (:started @bp/bp-state)))
-    (is (= :started (bp/start (simple-start-test-impl)))
+    (is (= false (:started @bpc/bp-state)))
+    (is (= :started (bpon/start (simple-start-test-impl)))
         "The simple start implementation should just return :started")
-    (is (= true (:started @bp/bp-state)))
+    (is (= true (:started @bpc/bp-state)))
     (su/dbg "stopping simple-stop-test-impl")
-    (is (= :stopped (bp/stop simple-stop-test-impl))
+    (is (= :stopped (bpon/stop simple-stop-test-impl))
         "The simple start implementation should just return :stopped")
-    (is (= false (:started @bp/bp-state)))
+    (is (= false (:started @bpc/bp-state)))
 
     ;(let [done-chan (a/timeout 5000)]
     ;  (bp/start (chan-start-test-impl (simple-block-handler done-chan)))
@@ -163,17 +170,19 @@
         file-path   (-> backup-cfg :backup-paths first)]
     (testing "Validate creating a block-info map"
       (let [block      (col/create-block file-path)
-            block-info (bp/make-block-info (:file-dir block))
+            block-info (bpc/make-block-info block)
             file        (io/file (:path file-path))]
         (is (= true (some? block-info))
             "A valid file-block should return a valid block-info map")
         (is (= (.hashCode file) (:xt/id block-info))
             "The block-info :xt/id should match the file's hashcode")
-        (is (= (if (.isDirectory file) :dir :file) (:type block-info))
+        (is (= (if (.isDirectory file) :dir :file) (:block-type block-info))
             "The block-info type should have the expected value of :dir or :file")
+        (is (= :offsite-block (:data-type block-info))
+            "Block Info is the beginnings of an offsite block and should indicate so")
         (is (= (.isHidden file) (:hidden? block-info))
             "The block-info hidden status should match that of the file it points to.")
-        (is (= (bp/get-checksum file) (:checksum block-info))
+        (is (= (bpc/get-checksum file) (:checksum block-info))
             "The block-info checksum should match that of the file it represents")
         (is (= (.lastModified file) (:last-modified block-info))
             "The block-info last-modified time should match that of the file it represents")))))
@@ -182,29 +191,73 @@
   (let [backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
         file-path   (-> backup-cfg :backup-paths first)
         block      (col/create-block file-path)
-        block-info (bp/make-block-info (:file-dir block))]
+        block-info (bpc/make-block-info block)]
     (testing "create-ofs-block-state"
-      (is (= nil (bp/create-ofs-block-state nil))
+      (is (= nil (bpc/create-ofs-block-state nil))
           "Creating ofs-block for a non-existing block-info should return nil")
-      (let [block-state (bp/create-ofs-block-state block-info)
+      (let [block-state (bpc/create-ofs-block-state block-info)
             tx-info     (db/easy-ingest! block-state)
             _ (su/dbg "returned block-state: " block-state)
             file         (:file-dir block)]
         (tu/validate-ofs-block block-state tx-info)))))
 
+(defn get-temp-file
+  ""
+  ([prefix suffix]
+
+   (let [f (File/createTempFile prefix suffix)]
+     (.deleteOnExit f)
+     f))
+
+  ([prefix]
+   (get-temp-file prefix nil)))
+
+(defn get-temp-dir
+  ""
+  ([prefix attrs]
+
+   (let [d (Files/createTempDirectory prefix attrs)]
+     (-> d .toFile .deleteOnExit)
+     d))
+
+  ([prefix]
+   (get-temp-dir prefix nil))
+
+  ([]
+   (get-temp-dir nil nil)))
 
 (deftest process-file-test
-  (let [                                                    ;backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
-        tmp-file    (File/createTempFile "tmp" nil)
+  (let [tmp-file    (get-temp-file "tmp")
         file-path   {:path (.getPath tmp-file)}]
+    (.deleteOnExit tmp-file)
     (testing "Processing a block representing a single file"
       (let [block       (col/create-block file-path)
-            block-info  (bp/make-block-info (:file-dir block))
-            block-state (bp/create-ofs-block-state block-info)
+            block-info  (bpc/make-block-info block)
+            block-state (bpc/create-ofs-block-state block-info)
             tx-info     (db/easy-ingest! block-state)
-            file-state   (bp/process-file block)]
+            file-state   (bpon/process-file block)]
         (is (= true (some? file-state))
             "Processing a valid file block should not return nil")
         (su/dbg "process-file gave back file-state: " file-state)
-        (is (= (if (.isDirectory tmp-file) :dir :file) (:type file-state))
+        (is (= (if (.isDirectory tmp-file) :dir :file) (:block-type file-state))
             "The block being processed is a file, the state map should match")))))
+
+(deftest create-child-dir-test
+  (let [backup-cfg   (init/get-paths (str test-configs-dir "/backup-paths.edn"))
+        music-path   (-> backup-cfg :backup-paths second)]
+    (testing "Validate the creation of a child dir path"
+      (let [ons-dir-block (col/create-block music-path)
+            xs-dir-path   (io/file (str (:path music-path) "/extra-small"))
+            child-dir     (bpon/create-child-dir xs-dir-path ons-dir-block)]
+        (is (= true (str/ends-with? (-> music-path :path) "music"))
+            "The second item in backup-paths.edn should be the music directory")
+        (is (= (.hashCode xs-dir-path) (:xt/id child-dir))
+            "The hash code of the new child-dir should match that of the file it represents")
+        (is (= (.getCanonicalPath xs-dir-path) (:path child-dir))
+            "The path of the new child-dir should match that of the file it represents")
+        (is (= (:backup-id (col/get-backup-info)) (:backup-id child-dir))
+            "The backup-id of the new child-dir should match the one in backup-info")
+        (is (= :backup-path (:data-type child-dir))
+            "The data-type of the child-dir should be :backup-path")
+        (is (= (:xt/id ons-dir-block) (:ons-parent-id child-dir))
+            "The :ons-parent-id of the new child-block should point to it's parent dir")))))

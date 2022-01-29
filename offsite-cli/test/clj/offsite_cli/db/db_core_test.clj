@@ -99,7 +99,7 @@
       (let [backup-cfg         (init/get-paths (str test-configs-dir "/backup-paths.edn"))
             file-path           (-> backup-cfg :backup-paths first) ;; first path is file du.out
             block              (col/create-block file-path)
-            block-info         (bp/make-block-info (:file-dir block))
+            block-info         (bp/make-block-info block)
             block-state-vec    (bp/create-ofs-block-state block-info)
             tx-info            (db/easy-ingest! block-state-vec)]
         (tu/validate-ofs-block (db/get-ofs-block-state! (:xt/id block-info))

@@ -14,6 +14,7 @@
                            :backup-count 0
                            :push-count   0
                            :total-bytes  0
+                           :backup-paths []
                            :push-bytes   0}))
 
 (declare start stop)
@@ -29,18 +30,24 @@
 
   params:
   path-defs     A backup path, with possible exclusions
+  parent-block  (optional - default nil) The ID of the ons parent block
 
   returns:     A backup block"
-  [{:keys [path exclusions] :as path-defs}]
+  ([{:keys [path exclusions] :as path-defs} parent-block]
 
-  (let [file-dir (io/file path)
-        block   {:root-path  (.getCanonicalPath file-dir)
-                 :file-dir    file-dir
-                 :size       (if (.isDirectory file-dir) 0 (.length file-dir))}]
-    ;; only add the :exclusions kv pair if the exclusions vector has data
-    (if (or (nil? exclusions) (empty? exclusions))
-      block
-      (assoc block :exclusions exclusions))))
+   (let [file-dir (io/file path)
+         block {:root-path (.getCanonicalPath file-dir)
+                :backup-id (-> @collector-state :backup-info :backup-id)
+                :file-dir   file-dir
+                :parent-id (if (some? parent-block) (:xt/id parent-block))
+                :size      (if (.isDirectory file-dir) 0 (.length file-dir))}]
+     ;; only add the :exclusions kv pair if the exclusions vector has data
+     (if (or (nil? exclusions) (empty? exclusions))
+       block
+       (assoc block :exclusions exclusions))))
+
+  ([path-defs]
+   (create-block path-defs nil)))
 
 ;(defn start [backup-paths]
 ;  "Start processing the files in the backup paths, cataloguing current state, changed files
@@ -58,21 +65,43 @@
   (a/go-loop []
     (when-some [path (ch/take! :path-chan)]
       )))
-(defn start [backup-paths]
+
+(defn included?
+  "Returns true if the file-block is not in an exclusion list
+
+   Params:
+   file-dir-block"
+  [file-dir-block]
+
+  ;; logic will need to be smart enough to figure out relative exclusion paths and
+  ;; wildcard designators
+  ;;
+  ;; always returns true for now
+  true)
+
+(defn get-backup-info
+  "Returns map of details regarding this backup"
+  []
+
+  (:backup-info @collector-state))
+
+(defn start
   "Start process to wait for new paths from which to create onsite blocks.
 
    Params:
    backup-paths     A sequence of backup path definitions and exclusions"
+  [backup-paths]
 
   (when-not (:started @collector-state)
     (println "Starting Collector started: " (:started @collector-state))
 
     (try
-      (db/start-backup! backup-paths :adhoc)
-      (dosync (alter collector-state assoc-in [:started] true))
-      (doseq [path-def backup-paths]
-        (-> (create-block path-def)
-            (ch/put! :onsite-block-chan)))
+      (let [backup-info (db/start-backup! backup-paths :adhoc)]
+        (dosync (alter collector-state assoc :started true :backup-info backup-info))
+        (doseq [path-def backup-paths]
+          (dosync (alter collector-state update-in [:backup-paths] conj path-def))
+          (-> (create-block path-def)
+              (ch/put! :onsite-block-chan))))
       (catch Exception e
         (log/error "Collector stopped with exception: " (.getMessage e))))))
 

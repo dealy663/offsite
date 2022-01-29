@@ -13,6 +13,8 @@
 (defn hostname
    "Returns the name of the system that this Offsite Client is running on."
    []
+
+   ;; This needs to be adjusted, so it will work on Windows also
    (try
       (-> (shell/sh "hostname") (:out) (str/trim))
       (catch Exception _e
@@ -61,3 +63,13 @@
 (defmacro dbg [& messages]
    `(log/debug "\n\t***------->>>" (str ~@messages)))
 
+
+(defn get-client-info
+   "Returns the client info map.
+
+    This needs to be updated to read from an EDN file created at install time."
+   []
+
+   {:client-id   42
+    :public-key  "invalid key"
+    :quality     100})
