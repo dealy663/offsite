@@ -121,6 +121,18 @@
            (process-block)
            (ch/put! :offsite-block-chan))))
 
+(defn- path-block-handler
+  "Overrideable logic for processing path-blocks that have been added to the DB for the current
+   backup."
+  [_]
+
+  (with-open [path-seq-itr (db/get-path-blocks-lazy (:backup-id col/get-backup-info))]
+    (doseq [path-block (iterator-seq path-seq-itr)]
+      (su/dbg "received block: " path-block)
+      (->> path-block
+           (process-block)
+           (ch/put! :offsite-block-chan)))))
+
 (defn onsite-block-listener
    "Starts a thread which listens to the ::onsite-block-chan for new blocks which need
     to be processed
@@ -148,7 +160,8 @@
     (su/dbg "OnBL: block-processor stopped"))
 
    ([]
-    (onsite-block-listener onsite-block-handler)))
+    ;;(onsite-block-listener onsite-block-handler)
+    (onsite-block-listener path-block-handler)))
 
 (defn- start-default
    "Standard implementation of start, can be overridden in test by passing customized body"

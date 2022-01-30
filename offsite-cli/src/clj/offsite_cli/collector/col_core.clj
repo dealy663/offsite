@@ -17,7 +17,7 @@
                            :backup-paths []
                            :push-bytes   0}))
 
-(declare start stop)
+(declare start stop get-backup-info)
 
 (mount/defstate collector-chans
   :start (do
@@ -35,16 +35,17 @@
   returns:     A backup block"
   ([{:keys [path exclusions] :as path-defs} parent-block]
 
-   (let [file-dir (io/file path)
-         block {:root-path (.getCanonicalPath file-dir)
-                :backup-id (-> @collector-state :backup-info :backup-id)
-                :file-dir   file-dir
-                :parent-id (if (some? parent-block) (:xt/id parent-block))
-                :size      (if (.isDirectory file-dir) 0 (.length file-dir))}]
-     ;; only add the :exclusions kv pair if the exclusions vector has data
-     (if (or (nil? exclusions) (empty? exclusions))
-       block
-       (assoc block :exclusions exclusions))))
+   ;; I'm still of mixed opinions about whether to store an actual file object vs a path string
+   ;; here. It looks like a valid file object can be written to XTDB, staying with path string for now
+   (let [file-dir (io/file path)]
+     {:xt/id     (.hashCode file-dir)
+      :root-path (.getCanonicalPath file-dir)
+      :orig-path path
+      :data-type :path-block
+      :backup-id (:backup-id (get-backup-info))
+      ;:file-dir
+      :parent-id (if (some? parent-block) (:xt/id parent-block))
+      :size      (if (.isDirectory file-dir) 0 (.length file-dir))}))
 
   ([path-defs]
    (create-block path-defs nil)))
@@ -101,7 +102,8 @@
         (doseq [path-def backup-paths]
           (dosync (alter collector-state update-in [:backup-paths] conj path-def))
           (-> (create-block path-def)
-              (ch/put! :onsite-block-chan))))
+              (db/add-path-block)
+              #_(ch/put! :onsite-block-chan))))
       (catch Exception e
         (log/error "Collector stopped with exception: " (.getMessage e))))))
 

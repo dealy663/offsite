@@ -67,7 +67,7 @@
    ons-file-block     A file or directory ready to have its state catalogued in the DB"
   [ons-file-block]
 
-  (let [file (:file-dir ons-file-block)]
+  (let [file (io/file (:orig-path ons-file-block))]
     {:xt/id        (.hashCode file)
      :backup-id    (:backup-id ons-file-block)
      :path         (.getCanonicalPath file)

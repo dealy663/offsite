@@ -95,16 +95,56 @@
      :tx-inst     tx-inst
      :tx-success? success?}))
 
-(defn add-onsite-path
+(defn add-path-block
   "Add onsite path(s) to the actively running backup
 
    Params:
-   backup-path    A path to an onsite file-dir to be scheduled for backup
+   onsite-block    A path to an onsite file-dir to be scheduled for backup
 
    Returns an #inst of the DB TX"
-  [onsite-path]
+  [onsite-block]
 
-  )
+  (easy-ingest! [onsite-block]))
+
+(defn get-all-path-blocks
+  "Retrieves a group of path-blocks
+
+   Params:
+   backup-id   The ID of the backup in progress
+   count       (optional - default 1) The number of path-blocks to retrieve from DB
+
+   Returns a vector of path-blocks"
+  ([backup-id count]
+
+   (let [all-paths-set (xt/q
+                         (xt/db db-node*)
+                         '{:find  [(pull e [*])]
+                           :where [[e :backup-id backup-id]
+                                   [e :data-type :path-block]]})]
+     (first all-paths-set)))
+
+  ([backup-id]
+   (get-all-path-blocks backup-id 1)))
+
+(defn get-path-blocks-lazy
+  "Creates a cursor like lazy seq for a backup's path-blocks. When processing from this seq
+   the logic should probably be in a with-open expression to auto-close the iterator.
+
+   e.g. (with-open [path-seq (get-path-blocks-lazy backup-id)]
+          (doseq [path-block (iterator-seq path-seq)]
+            ;; process path into onsite-block
+            ...))
+
+   Params:
+   backup-id     The ID of the backup in progress
+
+   Returns a lazy iterator-seq of path-blocks"
+  ([backup-id]
+   (xt/open-q (xt/db db-node*)
+              '{:find  [(pull e [*])]
+                :where [[e :backup-id backup-id]
+                        [e :data-type :path-block]]
+                :in    [backup-id]} backup-id)))
 
 (defn get-ofs-block-state!
   "Retrieves the latest file state info from the DB

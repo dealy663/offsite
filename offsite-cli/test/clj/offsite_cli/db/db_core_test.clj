@@ -105,3 +105,31 @@
         (tu/validate-ofs-block (db/get-ofs-block-state! (:xt/id block-info))
                                tx-info)))))
 
+
+(deftest add-onsite-block-test
+  (let [configs     (init/get-paths (str test-configs-dir "/backup-paths.edn"))
+        music-path (-> configs :backup-paths second)
+        backup-id  1]
+    (testing "Storing a path-block to the DB"
+      (dosync (alter col/collector-state assoc :backup-info {:backup-id backup-id}))
+      (let [music-dir-block (col/create-block music-path)
+            tx-info         (db/add-path-block music-dir-block)
+            path-block      (-> backup-id
+                                (db/get-all-path-blocks)
+                                (first))]
+        ;(su/dbg "got path-block: " path-block)
+        (is (= (:xt/id music-dir-block) (:xt/id path-block))
+            (str "The " (:orig-path music-dir-block) " was not found in DB after it was added"))))
+
+    (testing "Storing multiple path-blocks to DB"
+      (let [music-dir-block (col/create-block music-path)
+            music-dir       (io/file (:orig-path music-dir-block))
+            child-paths     (.listFiles music-dir)]
+        (doseq [subdir child-paths]
+          (db/add-path-block (col/create-block {:path (.getPath subdir)} music-dir-block)))
+        (with-open [child-path-blocks (db/get-path-blocks-lazy backup-id)]
+          (doseq [path-block (iterator-seq  child-path-blocks)]
+            ;(su/dbg "got child path blocks: " path-block)
+            (when (= (:xt/id music-dir-block) (:parent-id path-block))
+              (is (= true (some #(= (-> path-block first :orig-path) (.getPath %)) child-paths))
+                  (str "path-block: " (-> path-block first :orig-path) " not found in " (.getPath music-dir) " file list")))))))))
