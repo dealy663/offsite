@@ -10,6 +10,8 @@
    (:import [java.net InetAddress]
             (java.util UUID)))
 
+(def backup-close-states [:paused :completed :halted])
+
 (defn hostname
    "Returns the name of the system that this Offsite Client is running on."
    []

@@ -63,6 +63,7 @@
 (deftest backup
   (let [backup-cfg (init/get-paths (str test-configs-dir "/short-backup-paths.edn"))]
     (testing "starting a backup"
+      (dbc/stop-backup! :halted)
       (let [start-resp     (dbc/start-backup! (:backup-paths backup-cfg) :adhoc)
             current-backup (dbc/get-last-backup!)]
         ;(su/dbg "start resp:" start-resp)
@@ -83,9 +84,14 @@
 
     (testing "Starting a backup while another is already in progress"
       (let [result (dbc/start-backup! (:backup-paths backup-cfg) :adhoc)]
-        ;(su/dbg "start-backup result: " result)
         (is (= false (:tx-success? result))
-            "The start-backup function should return false if another backup is already in progress")))))
+            "The start-backup function should return false if another backup is already in progress")
+        (dbc/stop-backup! :halted)
+        (let [last-backup (dbc/get-last-backup!)]
+          (is (= :halted (:close-state last-backup))
+              "A halted backup should have to :close-state that was supplied")
+          (is (= false (:in-progress last-backup))
+              "A halted or stopped backup should have :in-progress = false"))))))
 
 (deftest get-ofs-block-state-test
   (let [backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
@@ -125,8 +131,8 @@
       (let [music-dir-block (col/create-block music-path)
             music-dir       (io/file (:orig-path music-dir-block))
             child-paths     (.listFiles music-dir)]
-        (doseq [subdir child-paths]
-          (db/add-path-block (col/create-block {:path (.getPath subdir)} music-dir-block)))
+        (doseq [sub-dir child-paths]
+          (db/add-path-block (col/create-block {:path (.getPath sub-dir)} music-dir-block)))
         (with-open [child-path-blocks (db/get-path-blocks-lazy backup-id)]
           (doseq [path-block (iterator-seq  child-path-blocks)]
             ;(su/dbg "got child path blocks: " path-block)

@@ -82,6 +82,7 @@
                                :backup-type  backup-type
                                :backup-paths backup-paths
                                :in-progress  true
+                               :close-state  nil
                                :onsite-paths []}]]
         db-put (if-not (nil? last-backup)                   ;; If a backup record already exists
                  `[~matcher ~@db-put]                       ;; this is an interesting way to kinda cons on to the front of a vector and still maintain a vector
@@ -94,6 +95,26 @@
     {:backup-id   current-backup-uuid
      :tx-inst     tx-inst
      :tx-success? success?}))
+
+(defn stop-backup!
+  "Stop the ongoing backup and set it's state to :halted.
+
+   Params:
+   close-reason      Reason for stopping backup, member of su/backup-close-states [:paused :completed :halted].
+
+   Returns the #tx-inst for the close operation"
+  [close-reason]
+
+  (when-let [last-backup (get-last-backup!)]
+    (su/dbg "got last-back: " last-backup)
+    (if-let [close-state (:close-state last-backup)]
+      (log/warn "The last backup had already been stopped with close-state: " close-state)
+      (let [tx-inst  (easy-ingest! [(assoc last-backup :close-state close-reason :in-progress false)])
+            success? (xt/tx-committed? db-node* tx-inst)]
+        (if success?
+          (log/info "Successfully closed backup, id: " (:xt/id last-backup))
+          (log/error "An error has occurred when trying to close backup: " (:xt/id last-backup)))
+        tx-inst))))
 
 (defn add-path-block
   "Add onsite path(s) to the actively running backup
