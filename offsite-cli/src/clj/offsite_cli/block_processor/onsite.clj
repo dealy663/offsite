@@ -44,7 +44,7 @@
     ons-dir-parent  ons-file-block for parent directory"
    [file ons-dir-parent]
 
-   (let [ons-file-block (col/create-block {:path (.getCanonicalPath file)} ons-dir-parent)]
+   (let [ons-file-block (col/create-root-path-block {:path (.getCanonicalPath file)} ons-dir-parent)]
       (process-file ons-file-block)))
 
 (defn process-dir

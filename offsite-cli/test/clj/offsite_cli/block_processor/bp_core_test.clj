@@ -169,7 +169,7 @@
   (let [backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
         file-path   (-> backup-cfg :backup-paths first)]
     (testing "Validate creating a block-info map"
-      (let [block      (col/create-block file-path)
+      (let [block      (col/create-root-path-block file-path)
             block-info (bpc/make-block-info block)
             file        (io/file (:path file-path))]
         (is (= true (some? block-info))
@@ -190,7 +190,7 @@
 (deftest create-ofs-block-state-test
   (let [backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
         file-path   (-> backup-cfg :backup-paths first)
-        block      (col/create-block file-path)
+        block      (col/create-root-path-block file-path)
         block-info (bpc/make-block-info block)]
     (testing "create-ofs-block-state"
       (is (= nil (bpc/create-ofs-block-state nil))
@@ -231,7 +231,7 @@
         file-path   {:path (.getPath tmp-file)}]
     (.deleteOnExit tmp-file)
     (testing "Processing a block representing a single file"
-      (let [block       (col/create-block file-path)
+      (let [block       (col/create-root-path-block file-path)
             block-info  (bpc/make-block-info block)
             block-state (bpc/create-ofs-block-state block-info)
             tx-info     (db/easy-ingest! block-state)
@@ -246,7 +246,7 @@
   (let [backup-cfg   (init/get-paths (str test-configs-dir "/backup-paths.edn"))
         music-path   (-> backup-cfg :backup-paths second)]
     (testing "Validate the creation of a child dir path"
-      (let [ons-dir-block (col/create-block music-path)
+      (let [ons-dir-block (col/create-root-path-block music-path)
             xs-dir-path   (io/file (str (:path music-path) "/extra-small"))
             child-dir     (bpon/create-child-dir xs-dir-path ons-dir-block)]
         (is (= true (str/ends-with? (-> music-path :path) "music"))

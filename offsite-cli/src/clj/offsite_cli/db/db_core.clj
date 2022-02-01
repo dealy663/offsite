@@ -116,7 +116,7 @@
           (log/error "An error has occurred when trying to close backup: " (:xt/id last-backup)))
         tx-inst))))
 
-(defn add-path-block
+(defn add-path-block!
   "Add onsite path(s) to the actively running backup
 
    Params:

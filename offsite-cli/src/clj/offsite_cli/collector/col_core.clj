@@ -5,7 +5,8 @@
             [mount.core :as mount]
             [offsite-cli.db.db-core :as db]
             [offsite-cli.channels :as ch]
-            [clojure.tools.logging :as log]))
+            [clojure.tools.logging :as log]
+            [offsite-cli.system-utils :as su]))
 
 (def stop-key :stop-collector)
 
@@ -25,7 +26,28 @@
            #_(start))
   :stop (stop))
 
-(defn create-block
+(defn create-path-block
+  "Create a backup block
+
+  params:
+  file-dir       A backup path, with possible exclusions
+  parent-block  (optional - default nil) The ID of the ons parent block
+
+  returns:     A backup block"
+  ([file-dir]
+   (create-path-block file-dir nil))
+
+  ([file-dir parent-block]
+   {:xt/id     (.hashCode file-dir)
+    :root-path (.getCanonicalPath file-dir)
+    :orig-path (.getPath file-dir)
+    :data-type :path-block
+    :backup-id (:backup-id (get-backup-info))
+    ;:file-dir
+    :parent-id (if (some? parent-block) (:xt/id parent-block))
+    :size      (if (.isDirectory file-dir) 0 (.length file-dir))}))
+
+(defn create-root-path-block
   "Create a backup block
 
   params:
@@ -38,17 +60,10 @@
    ;; I'm still of mixed opinions about whether to store an actual file object vs a path string
    ;; here. It looks like a valid file object can be written to XTDB, staying with path string for now
    (let [file-dir (io/file path)]
-     {:xt/id     (.hashCode file-dir)
-      :root-path (.getCanonicalPath file-dir)
-      :orig-path path
-      :data-type :path-block
-      :backup-id (:backup-id (get-backup-info))
-      ;:file-dir
-      :parent-id (if (some? parent-block) (:xt/id parent-block))
-      :size      (if (.isDirectory file-dir) 0 (.length file-dir))}))
+     (create-path-block file-dir parent-block)))
 
   ([path-defs]
-   (create-block path-defs nil)))
+   (create-root-path-block path-defs nil)))
 
 ;(defn start [backup-paths]
 ;  "Start processing the files in the backup paths, cataloguing current state, changed files
@@ -80,6 +95,51 @@
   ;; always returns true for now
   true)
 
+
+(defn recurse-paths!
+  "Walks a file system storing all directories that aren't excluded. Each directory that is found will
+   be written to the DB as a path-block for later processing.
+
+   Params:
+   root-dir            A directory to recurse through
+   progress-callback   (optional - default nil) A function to call back with progress updates it should expect
+                       a map with progress details {:dir-count
+                                                    :file-count
+                                                    :byte-count}
+
+   Returns the number of directories processed and bytes expected to be backed up"
+  ([root-dir]
+   (recurse-paths! root-dir nil))
+
+  ([root-dir progress-callback]
+   (loop [dirs [{:parent-id nil
+                 :file-dir  (if (string? root-dir) (io/file root-dir) root-dir)}]
+          dir-count  0
+          file-count  0
+          byte-count 0]
+     (su/dbg "got dirs: " dirs)
+     (if-some [current-dir (first dirs)]
+       (let [{:keys [parent-id file-dir]} current-dir
+             path-block (create-path-block file-dir parent-id)
+             _ (su/dbg "created path block: " path-block)
+             tx-info (db/add-path-block! path-block)
+             children (vec (.listFiles file-dir))
+             _ (su/dbg "got children: " children)
+             child-dirs (->> children
+                             (filter #(.isDirectory %))
+                             (map (fn [dir] {:parent-id (:xt/id path-block) :file-dir dir}))) ;; too lazy, these to filters should be in a single
+             child-files (filter #(not (.isDirectory %)) children) ;; function
+             sum-files (->> child-files
+                            (map #(.length %))
+                            (reduce +))]
+         (recur (concat (rest dirs) child-dirs)
+                (inc dir-count)
+                (+ file-count (count child-files))
+                (+ byte-count sum-files)))
+       {:dir-count  dir-count
+        :file-count file-count
+        :byte-count byte-count}))))
+
 (defn get-backup-info
   "Returns map of details regarding this backup"
   []
@@ -101,8 +161,8 @@
         (dosync (alter collector-state assoc :started true :backup-info backup-info))
         (doseq [path-def backup-paths]
           (dosync (alter collector-state update-in [:backup-paths] conj path-def))
-          (-> (create-block path-def)
-              (db/add-path-block)
+          (-> (create-root-path-block path-def)
+              (db/add-path-block!)
               #_(ch/put! :onsite-block-chan))))
       (catch Exception e
         (log/error "Collector stopped with exception: " (.getMessage e))))))

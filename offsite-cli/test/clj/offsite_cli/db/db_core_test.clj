@@ -104,7 +104,7 @@
     (testing "Retrieving ofs block-state from DB"
       (let [backup-cfg         (init/get-paths (str test-configs-dir "/backup-paths.edn"))
             file-path           (-> backup-cfg :backup-paths first) ;; first path is file du.out
-            block              (col/create-block file-path)
+            block              (col/create-root-path-block file-path)
             block-info         (bp/make-block-info block)
             block-state-vec    (bp/create-ofs-block-state block-info)
             tx-info            (db/easy-ingest! block-state-vec)]
@@ -118,8 +118,8 @@
         backup-id  1]
     (testing "Storing a path-block to the DB"
       (dosync (alter col/collector-state assoc :backup-info {:backup-id backup-id}))
-      (let [music-dir-block (col/create-block music-path)
-            tx-info         (db/add-path-block music-dir-block)
+      (let [music-dir-block (col/create-root-path-block music-path)
+            tx-info         (db/add-path-block! music-dir-block)
             path-block      (-> backup-id
                                 (db/get-all-path-blocks)
                                 (first))]
@@ -128,11 +128,11 @@
             (str "The " (:orig-path music-dir-block) " was not found in DB after it was added"))))
 
     (testing "Storing multiple path-blocks to DB"
-      (let [music-dir-block (col/create-block music-path)
+      (let [music-dir-block (col/create-root-path-block music-path)
             music-dir       (io/file (:orig-path music-dir-block))
             child-paths     (.listFiles music-dir)]
         (doseq [sub-dir child-paths]
-          (db/add-path-block (col/create-block {:path (.getPath sub-dir)} music-dir-block)))
+          (db/add-path-block! (col/create-root-path-block {:path (.getPath sub-dir)} music-dir-block)))
         (with-open [child-path-blocks (db/get-path-blocks-lazy backup-id)]
           (doseq [path-block (iterator-seq  child-path-blocks)]
             ;(su/dbg "got child path blocks: " path-block)
