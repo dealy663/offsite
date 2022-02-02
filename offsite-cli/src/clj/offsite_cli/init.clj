@@ -40,11 +40,10 @@
     (when (seq exclusions)
       (let [root-dir       (io/file path)
             canonical-path (fs/canonicalize root-dir)
-            path-root      (-> root-dir fs/canonicalize .getRoot str) #_(.getRoot (fs/canonicalize root-dir))]
-        (mapv #(when-some [excl %]
-                 (if (str/starts-with? excl path-root)
-                   excl
-                   (str canonical-path File/separator excl)))
+            path-root      (-> canonical-path .getRoot str)]
+        (mapv #(if (str/starts-with? % path-root)
+                 %
+                 (str canonical-path File/separator %))
               exclusions)))))
 
 ;; should we adapt this to take an optional override to paths-config?
