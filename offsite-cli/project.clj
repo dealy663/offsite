@@ -47,6 +47,7 @@
                  [org.clj-commons/digest "1.4.100"]
                  [selmer "1.12.45"]
                  [thheller/shadow-cljs "2.16.7" :scope "provided"]
+                 [babashka/fs "0.1.2"]
 
                  ;; statecharts isn't used now and probably should be removed. But keeping comment
                  ;; as this seems like it could be useful in the future

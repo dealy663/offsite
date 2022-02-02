@@ -112,6 +112,7 @@
                                tx-info)))))
 
 
+;; this probably should be classified as an integration test
 (deftest add-onsite-block-test
   (let [configs     (init/get-paths (str test-configs-dir "/backup-paths.edn"))
         music-path (-> configs :backup-paths second)
@@ -123,7 +124,6 @@
             path-block      (-> backup-id
                                 (db/get-all-path-blocks)
                                 (first))]
-        ;(su/dbg "got path-block: " path-block)
         (is (= (:xt/id music-dir-block) (:xt/id path-block))
             (str "The " (:orig-path music-dir-block) " was not found in DB after it was added"))))
 

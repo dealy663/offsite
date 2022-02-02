@@ -10,6 +10,12 @@
    (:import [java.net InetAddress]
             (java.util UUID)))
 
+;; Default name of backup paths configuration, which is expected to be found at the top-level of the installation
+;; directory for the offsite client
+(def default-paths-file "backup-paths.edn")
+(def paths-config (atom {:paths-file default-paths-file
+                         :backup-paths []}))
+
 (def backup-close-states [:paused :completed :halted])
 
 (defn hostname

@@ -12,7 +12,8 @@
     [offsite-cli.db.db-core :refer :all]
     [ring.util.http-response :refer :all]
     [clojure.java.io :as io]
-    [xtdb.api :as xt]))
+    [xtdb.api :as xt]
+    [offsite-cli.system-utils :as su]))
 
 (defn service-routes []
   ["/api"
@@ -80,7 +81,7 @@
     {:swagger {:tags ["init"]}}
 
     ["/get-backup-paths"
-     {:get {:summary (str "display the current backup paths in: " (:paths-file @init/paths-config))
+     {:get {:summary (str "display the current backup paths in: " (:paths-file @su/paths-config))
             :handler (fn [_]
                        (let [response (init/get-paths)]
                          {:status (if (not (nil? response)) 200 404)
