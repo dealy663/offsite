@@ -46,6 +46,26 @@
                  (str canonical-path File/separator %))
               exclusions)))))
 
+(defn get-exclusions
+  "Adds the exclusions set for each path to the paths config
+
+  Params:
+  paths-config     (optional - default = su/paths-config) The paths that have already been read in from the
+                  configuration EDN file.
+
+  Returns a vector of excluded directories and files"
+  ([]
+   (get-exclusions @su/paths-config))
+
+  ([paths-config]
+   (su/dbg "got paths-config: " paths-config)
+   (let [exclusions (->> paths-config
+                        (map #(build-exclusions %))
+                        (reduce into []))]
+     (if (seq exclusions)
+       exclusions
+       nil))))
+
 ;; should we adapt this to take an optional override to paths-config?
 (defn get-paths
   "Get the paths to be backed up, use those specified in backup-paths.edn or prompt the user to define
@@ -58,9 +78,11 @@
 
   (let [paths-file (or (first paths-override) (:paths-file @su/paths-config))]
     (if (.exists (io/as-file paths-file))
-      (do (swap! su/paths-config assoc :backup-paths (edn/read-string (slurp paths-file))
-                 :paths-file paths-file)
-           @su/paths-config)
+      (let [backup-paths (edn/read-string (slurp paths-file))
+            exclusions   (get-exclusions backup-paths)]
+        (swap! su/paths-config assoc :backup-paths backup-paths :paths-file paths-file
+               :exclusions exclusions)
+        @su/paths-config)
       ;(edn/read-string (slurp paths-config))
       ;; Need to add some sort of logging facility SLF4J? Timbre?
       #_nil)))

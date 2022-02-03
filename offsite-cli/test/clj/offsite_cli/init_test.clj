@@ -2,7 +2,8 @@
   (:require [clojure.test :refer :all]
             [offsite-cli.init :refer :all]
             [clojure.java.io :as io]
-            [babashka.fs :as fs]))
+            [babashka.fs :as fs]
+            [offsite-cli.system-utils :as su]))
 
 (def test-configs-dir "test/configurations")
 (def test-backup-data "test/backup-data")
@@ -23,7 +24,20 @@
       (is (= "test/backup-data/music" (:path second-path)))
       (let [excluded (:exclusions second-path)]
         (is (vector? excluded))
-        (is (.contains excluded "medium"))))))
+        (is (.contains excluded "medium")))))
+
+  (testing "Backup path exclusions"
+    (let [short-paths (get-paths (str test-configs-dir "/short-backup-paths.edn"))
+          exclusions  (get-exclusions)]
+      (is (nil? exclusions)
+          "There should be no exclusions for short-backup-paths.edn"))
+    (let [backup-cfg     (get-paths (str test-configs-dir "/backup-paths.edn"))
+          exclusions     (:exclusions @su/paths-config)
+          file-exclusions (mapcat #(:exclusions %) (:backup-paths backup-cfg))]
+      (is (some? exclusions)
+          "The backup-paths.edn file should have several exclusions")
+      (is (= (count file-exclusions) (count exclusions))
+          "The number of exclusions in backup-paths.edn should match the count returned from get-paths"))))
 
 (deftest build-exclusions-test
   (testing "the building of relative exclude paths"
