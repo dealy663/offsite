@@ -82,13 +82,13 @@
    [ons-file-block]
 
    (let [file-info  (bpc/make-block-info ons-file-block)
-         _ (su/dbg "Got block info: " file-info)
+         ;_ (su/dbg "Got block info: " file-info)
          file-state (or (db/get-ofs-block-state! (:xt/id file-info))
                         (let [state (bpc/create-ofs-block-state file-info)]
-                           (su/dbg "created-ofs-block-state: " (:first state))
-                           (su/dbg "easy-ingest! output: " (db/easy-ingest! state))
+                           ;(su/dbg "created-ofs-block-state: " (:first state))
+                           ;(su/dbg "easy-ingest! output: " (db/easy-ingest! state))
                            (:first state)))]
-      (su/dbg "process-file: fetched block-state - " file-state)
+     ;(su/dbg "process-file: fetched block-state - " file-state)
       (when (or (nil? (:version file-state))
                 (> 1 (:version file-state))
                 (not (= (:checksum file-info) (:checksum file-state))))

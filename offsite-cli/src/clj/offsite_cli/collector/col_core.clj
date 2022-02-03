@@ -6,7 +6,8 @@
             [offsite-cli.db.db-core :as db]
             [offsite-cli.channels :as ch]
             [clojure.tools.logging :as log]
-            [offsite-cli.system-utils :as su]))
+            [offsite-cli.system-utils :as su]
+            [clojure.string :as str]))
 
 (def stop-key :stop-collector)
 
@@ -83,63 +84,75 @@
       )))
 
 (defn included?
-  "Returns true if the file-block is not in an exclusion list
+  "Returns true if the file/dir path string is not in an exclusion list. This function expects that
+   the file/dir path is fully qualified from the root of the filesystem.
 
    Params:
-   file-dir-block"
-  [file-dir-block]
+   file-dir-path
+
+   Returns true if the file/dir path is not in the exclusion list"
+  [file-dir-path]
 
   ;; logic will need to be smart enough to figure out relative exclusion paths and
   ;; wildcard designators
   ;;
+  ;; babashka/fs has some globbing facilities that will need to be explored
+  ;;
   ;; always returns true for now
 
-  true)
+  (when-not (str/blank? file-dir-path)
+    (let [exclusions (:exclusions @su/paths-config)
+          excl-match (or
+                       (some #{file-dir-path} exclusions)
+                       (some #(do
+                                ;(su/dbg "comparing excl: " % " with file-dir-path: " file-dir-path)
+                                (str/starts-with? file-dir-path %)) exclusions))]
+      (not excl-match))))
 
 
-(defn recurse-paths!
-  "Walks a file system storing all directories that aren't excluded. Each directory that is found will
-   be written to the DB as a path-block for later processing.
+  (defn recurse-paths!
+    "Walks a file system storing all directories that aren't excluded. Each directory that is found will
+     be written to the DB as a path-block for later processing.
 
-   Params:
-   root-dir            A directory to recurse through
-   progress-callback   (optional - default nil) A function to call back with progress updates it should expect
-                       a map with progress details {:dir-count
-                                                    :file-count
-                                                    :byte-count}
+     Params:
+     root-dir            A directory to recurse through
+     progress-callback   (optional - default nil) A function to call back with progress updates it should expect
+                         a map with progress details {:dir-count
+                                                      :file-count
+                                                      :byte-count}
 
-   Returns the number of directories processed and bytes expected to be backed up"
-  ([root-dir]
-   (recurse-paths! root-dir nil))
+     Returns the number of directories processed and bytes expected to be backed up"
+    ([root-dir]
+     (recurse-paths! root-dir nil))
 
-  ([root-dir progress-callback]
-   (loop [dirs [{:parent-id nil
-                 :file-dir  (if (string? root-dir) (io/file root-dir) root-dir)}]
-          dir-count  0
-          file-count  0
-          byte-count 0]
-     (su/dbg "got dirs: " dirs)
-     (if-some [current-dir (first dirs)]
-       (let [{:keys [parent-id file-dir]} current-dir
-             path-block (create-path-block file-dir parent-id)
-             _ (su/dbg "created path block: " path-block)
-             tx-info (db/add-path-block! path-block)
-             children (vec (.listFiles file-dir))
-             _ (su/dbg "got children: " children)
-             child-dirs (->> children
-                             (filter #(.isDirectory %))
-                             (map (fn [dir] {:parent-id (:xt/id path-block) :file-dir dir}))) ;; too lazy, these to filters should be in a single
-             child-files (filter #(not (.isDirectory %)) children) ;; function
-             sum-files (->> child-files
-                            (map #(.length %))
-                            (reduce +))]
-         (recur (concat (rest dirs) child-dirs)
-                (inc dir-count)
-                (+ file-count (count child-files))
-                (+ byte-count sum-files)))
-       {:dir-count  dir-count
-        :file-count file-count
-        :byte-count byte-count}))))
+    ([root-dir progress-callback]
+     (loop [dirs [{:parent-id nil
+                   :file-dir  (if (string? root-dir) (io/file root-dir) root-dir)}]
+            dir-count 0
+            file-count 0
+            byte-count 0]
+       ;(su/dbg "got dirs: " dirs)
+       (if-some [current-dir (first dirs)]
+         (let [{:keys [parent-id file-dir]} current-dir
+               path-block (create-path-block file-dir parent-id)
+               ;_ (su/dbg "created path block: " path-block)
+               tx-info (db/add-path-block! path-block)
+               children (vec (.listFiles file-dir))
+               ;_ (su/dbg "got children: " children)
+               child-dirs (->> children
+                               (filter #(.isDirectory %))
+                               (map (fn [dir] {:parent-id (:xt/id path-block) :file-dir dir}))) ;; too lazy, these to filters should be in a single
+               child-files (filter #(not (.isDirectory %)) children) ;; function
+               sum-files (->> child-files
+                              (map #(.length %))
+                              (reduce +))]
+           (recur (concat (rest dirs) child-dirs)
+                  (inc dir-count)
+                  (+ file-count (count child-files))
+                  (+ byte-count sum-files)))
+         {:dir-count  dir-count
+          :file-count file-count
+          :byte-count byte-count}))))
 
 (defn get-backup-info
   "Returns map of details regarding this backup"

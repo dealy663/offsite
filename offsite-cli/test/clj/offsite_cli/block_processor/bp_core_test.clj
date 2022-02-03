@@ -238,7 +238,6 @@
             file-state   (bpon/process-file block)]
         (is (= true (some? file-state))
             "Processing a valid file block should not return nil")
-        (su/dbg "process-file gave back file-state: " file-state)
         (is (= (if (.isDirectory tmp-file) :dir :file) (:block-type file-state))
             "The block being processed is a file, the state map should match")))))
 

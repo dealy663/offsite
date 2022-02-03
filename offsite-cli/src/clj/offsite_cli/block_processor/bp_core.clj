@@ -91,7 +91,7 @@
     (let [block-info-vec (if (vector? ofs-blk-info)
                            ofs-blk-info
                            [ofs-blk-info])]
-      (su/dbg "create-ofs-block-state: block-info-vec - " block-info-vec)
+      ;(su/dbg "create-ofs-block-state: block-info-vec - " block-info-vec)
       (map #(assoc % :version 0) block-info-vec))))
 
 

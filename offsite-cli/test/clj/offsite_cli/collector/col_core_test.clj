@@ -6,7 +6,8 @@
             [clojure.java.io :as io]
             [offsite-cli.block-processor.bp-core :as bp]
             [offsite-cli.system-utils :as su]
-            [mount.core :as mount]))
+            [mount.core :as mount]
+            [babashka.fs :as fs]))
 
 (defn- with-components
   [components f]
@@ -90,7 +91,7 @@
   (let [backup-cfg   (init/get-paths (str test-configs-dir "/backup-paths.edn"))
         music-path   (-> backup-cfg :backup-paths second :path)
         music-block  (create-root-path-block (-> backup-cfg :backup-paths second))]
-    (su/dbg "got music-block: " music-block)
+    ;(su/dbg "got music-block: " music-block)
     (testing "Creating a whole directory tree in the DB"
       (let [result (recurse-paths! music-path)
             test-dir (io/file (:orig-path music-block))
@@ -99,3 +100,27 @@
             "A valid result is expected after recurse-paths!")
         (is (= (inc (count sub-dirs)) (:dir-count result))
             "The number of directories processed should match the sub-dirs of music-block + 1 for the music-block root")))))
+
+(deftest included?-test
+  (testing "included? function"
+    (let [backup-cfg   (init/get-paths (str test-configs-dir "/backup-paths.edn"))
+          music-dir    (fs/file backup-data-dir "music")
+          music-path   (fs/canonicalize music-dir)
+          medium-dir   (fs/file backup-data-dir "music/medium")
+          medium-path  (fs/canonicalize medium-dir)
+          medium-foo-path (str medium-path "/foo.txt")]
+      (is (included? (str music-path))
+          "The music path should not be on the exclusion list")
+      (is (not (included? (str medium-path)))
+          "The music/medium path should be on the exclusion list")
+      (is (not (included? medium-foo-path))
+          "Files within the excluded music/medium path should not be included")
+      (is (not (included? (str medium-path "/bar/file.txt")))
+          "Files within sub-dirs fo the excluded music/medium path should not be included")))
+
+  (testing "included? negative tests"
+    (let [backup-cfg   (init/get-paths (str test-configs-dir "/backup-paths.edn"))]
+      (is (nil? (included? nil))
+          "Testing if nil is included doesn't make sense and should just return nil")
+      (is (nil? (included? ""))
+          "An empty string should not be included as part of the backup effort"))))

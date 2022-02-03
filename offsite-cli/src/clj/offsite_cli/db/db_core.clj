@@ -106,7 +106,7 @@
   [close-reason]
 
   (when-let [last-backup (get-last-backup!)]
-    (su/dbg "got last-back: " last-backup)
+    ;(su/dbg "got last-back: " last-backup)
     (if-let [close-state (:close-state last-backup)]
       (log/warn "The last backup had already been stopped with close-state: " close-state)
       (let [tx-inst  (easy-ingest! [(assoc last-backup :close-state close-reason :in-progress false)])

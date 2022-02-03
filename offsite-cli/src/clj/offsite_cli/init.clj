@@ -58,7 +58,6 @@
    (get-exclusions @su/paths-config))
 
   ([paths-config]
-   (su/dbg "got paths-config: " paths-config)
    (let [exclusions (->> paths-config
                         (map #(build-exclusions %))
                         (reduce into []))]
