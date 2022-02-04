@@ -7,7 +7,8 @@
             [offsite-cli.channels :as ch]
             [clojure.tools.logging :as log]
             [offsite-cli.system-utils :as su]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [babashka.fs :as fs]))
 
 (def stop-key :stop-collector)
 
@@ -128,9 +129,13 @@
     ([root-dir progress-callback]
      (loop [dirs [{:parent-id nil
                    :file-dir  (if (string? root-dir) (io/file root-dir) root-dir)}]
-            dir-count 0
-            file-count 0
+            dir-count  0
+            file-count  0
             byte-count 0]
+       (when progress-callback
+         (progress-callback {:dir-count  dir-count
+                             :file-count  file-count
+                             :byte-count byte-count}))
        ;(su/dbg "got dirs: " dirs)
        (if-some [current-dir (first dirs)]
          (let [{:keys [parent-id file-dir]} current-dir
@@ -140,7 +145,8 @@
                children (vec (.listFiles file-dir))
                ;_ (su/dbg "got children: " children)
                child-dirs (->> children
-                               (filter #(.isDirectory %))
+                               (filter #(and (.isDirectory %)
+                                            (included? (str (fs/canonicalize %)))))
                                (map (fn [dir] {:parent-id (:xt/id path-block) :file-dir dir}))) ;; too lazy, these to filters should be in a single
                child-files (filter #(not (.isDirectory %)) children) ;; function
                sum-files (->> child-files
@@ -177,7 +183,7 @@
           (dosync (alter collector-state update-in [:backup-paths] conj path-def))
           (-> (create-root-path-block path-def)
               (db/add-path-block!)
-              #_(ch/put! :onsite-block-chan))))
+              (recurse-paths!))))
       (catch Exception e
         (log/error "Collector stopped with exception: " (.getMessage e))))))
 
