@@ -127,38 +127,42 @@
      (recurse-paths! root-dir nil))
 
     ([root-dir progress-callback]
-     (loop [dirs [{:parent-id nil
-                   :file-dir  (if (string? root-dir) (io/file root-dir) root-dir)}]
-            dir-count  0
-            file-count  0
-            byte-count 0]
-       (when progress-callback
-         (progress-callback {:dir-count  dir-count
-                             :file-count  file-count
-                             :byte-count byte-count}))
-       ;(su/dbg "got dirs: " dirs)
-       (if-some [current-dir (first dirs)]
-         (let [{:keys [parent-id file-dir]} current-dir
-               path-block (create-path-block file-dir parent-id)
-               ;_ (su/dbg "created path block: " path-block)
-               tx-info (db/add-path-block! path-block)
-               children (vec (.listFiles file-dir))
-               ;_ (su/dbg "got children: " children)
-               child-dirs (->> children
-                               (filter #(and (.isDirectory %)
-                                            (included? (str (fs/canonicalize %)))))
-                               (map (fn [dir] {:parent-id (:xt/id path-block) :file-dir dir}))) ;; too lazy, these to filters should be in a single
-               child-files (filter #(not (.isDirectory %)) children) ;; function
-               sum-files (->> child-files
-                              (map #(.length %))
-                              (reduce +))]
-           (recur (concat (rest dirs) child-dirs)
-                  (inc dir-count)
-                  (+ file-count (count child-files))
-                  (+ byte-count sum-files)))
-         {:dir-count  dir-count
-          :file-count file-count
-          :byte-count byte-count}))))
+     (let [root-file-dir (if (string? root-dir) (io/file root-dir) root-dir)]
+       (loop [dirs [{:parent-id nil
+                     :file-dir  root-file-dir}]
+              dir-count 0
+              file-count 0
+              byte-count 0]
+         ;(su/dbg "got dirs: " dirs)
+         (if-some [current-dir (first dirs)]
+           (let [{:keys [parent-id file-dir]} current-dir
+                 path-block (create-path-block file-dir parent-id)
+                 ;_ (su/dbg "created path block: " path-block)
+                 tx-info (db/add-path-block! path-block)
+                 children (vec (.listFiles file-dir))
+                 ;_ (su/dbg "got children: " children)
+                 child-dirs (->> children
+                                 (filter #(and (.isDirectory %)
+                                              (included? (str (fs/canonicalize %)))))
+                                 (map (fn [dir] {:parent-id (:xt/id path-block) :file-dir dir}))) ;; too lazy, these to filters should be in a single
+                 child-files (filter #(not (.isDirectory %)) children) ;; function
+                 sum-files (->> child-files
+                                (map #(.length %))
+                                (reduce +))]
+             (when progress-callback
+               (progress-callback {:cwd        file-dir
+                                   :dir-count  dir-count
+                                   :file-count  file-count
+                                   :byte-count byte-count}))
+             (recur (concat (rest dirs) child-dirs)
+                    (inc dir-count)
+                    (+ file-count (count child-files))
+                    (+ byte-count sum-files)))
+           (let [result {:dir-count  dir-count
+                         :file-count  file-count
+                         :byte-count byte-count}]
+             (progress-callback (assoc result :cwd (fs/canonicalize root-file-dir)))
+             result))))))
 
 (defn get-backup-info
   "Returns map of details regarding this backup"

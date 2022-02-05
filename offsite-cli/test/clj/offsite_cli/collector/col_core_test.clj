@@ -80,6 +80,56 @@
       (is (thrown? NullPointerException (create-root-path-block nil))
           "A nil block should throw an NPE"))))
 
+(defn recurse-callback
+  [progress-map]
+
+  (let [{:keys [cwd dir-count file-count byte-count]} progress-map]
+    (su/dbg "Recursing through: " cwd
+            ", dir-count: "  dir-count
+            ", file-count: "  file-count
+            ", byte-count: " byte-count)))
+
+(def dir-info-empty {:root       nil
+                     :dir-count  0
+                     :file-count  0
+                     :byte-count 0})
+
+(def dir-info (atom dir-info-empty))
+
+(defn- pre-visit-dir
+  [dir attrs]
+
+  (let [dir-path (-> dir .toFile .getCanonicalPath)]
+    (if (included? dir-path)
+      (do
+        (su/dbg "pre-visiting dir: " dir)
+        (swap! dir-info update :dir-count inc)
+        :continue)
+      :skip-subtree)))
+
+(defn- visit-file
+  [path attrs]
+
+  (let [file      (.toFile path)
+        file-path (.getCanonicalPath file)]
+    (when (included? file-path)
+      (su/dbg "visiting file: " path)
+      (swap! dir-info update :byte-count + (fs/size file))
+      (swap! dir-info update :file-count inc)
+      :continue)))
+
+(defn fs-get-info
+  "Returns the number of directories, files and total bytes pointed to by the path. This function does no
+   optimizations to avoid blowing the stack. It could have issues on really deep file systems.
+
+   Params:
+   path       A path to a directory or file"
+  [path]
+
+  (reset! dir-info (assoc dir-info-empty :root path))
+  (let [file-dir (if (string? path) (fs/file path) path)]
+    (fs/walk-file-tree file-dir {:pre-visit-dir pre-visit-dir :visit-file visit-file})
+    @dir-info))
 
 (deftest recurse-paths!-test
   (let [backup-cfg         (init/get-paths (str test-configs-dir "/backup-paths.edn"))
@@ -89,7 +139,7 @@
         music-block        (create-root-path-block (-> backup-cfg :backup-paths second))]
     ;(su/dbg "got music-block: " music-block)
     (testing "Creating a whole directory tree in the DB"
-      (let [result         (recurse-paths! music-path)
+      (let [result         (recurse-paths! music-path recurse-callback)
             test-dir       (io/file (:orig-path music-block))
             sub-dirs       (->> test-dir .listFiles (filter #(.isDirectory %)))
             included-count (- (count sub-dirs) (count music-exclusions))]
@@ -98,7 +148,16 @@
         ;; add 1 to account for the music dir itself
         (is (= (inc included-count) (:dir-count result))
             "The number of directories processed should match the sub-dirs of music-block + 1
-             for the music-block root and taking away the count of excluded dirs")))))
+             for the music-block root and taking away the count of excluded dirs")
+        (let [fs-info (fs-get-info music-path)]
+          (is (= music-path (:root fs-info))
+              "The root of fs-info should match the root that was used to start the search")
+          (is (= (:dir-count fs-info) (:dir-count result))
+              "The directory count on the file-system doesn't match that returned by recurse-paths!")
+          (is (= (:file-count fs-info) (:file-count result))
+              "The file count on the file-system doesn't match that returned by recurse-paths!")
+          (is (= (:byte-count fs-info) (:byte-count result))
+              "The total byte count on the file-system doesn't match that returned by recurse-paths!"))))))
 
 (deftest included?-test
   (testing "included? function"
