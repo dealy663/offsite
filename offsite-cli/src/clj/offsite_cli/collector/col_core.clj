@@ -32,7 +32,7 @@
   "Create a backup block
 
   params:
-  file-dir       A backup path, with possible exclusions
+  file-dir       A backup path
   parent-block  (optional - default nil) The ID of the ons parent block
 
   returns:     A backup block"
@@ -89,10 +89,10 @@
    the file/dir path is fully qualified from the root of the filesystem.
 
    Params:
-   file-dir-path
+   file-dir-str
 
    Returns true if the file/dir path is not in the exclusion list"
-  [file-dir-path]
+  [file-dir-str]
 
   ;; logic will need to be smart enough to figure out relative exclusion paths and
   ;; wildcard designators
@@ -101,22 +101,23 @@
   ;;
   ;; always returns true for now
 
-  (when-not (str/blank? file-dir-path)
+  (when-not (str/blank? file-dir-str)
     (let [exclusions (:exclusions @su/paths-config)
           excl-match (or
-                       (some #{file-dir-path} exclusions)
+                       (some #{file-dir-str} exclusions)
                        (some #(do
                                 ;(su/dbg "comparing excl: " % " with file-dir-path: " file-dir-path)
-                                (str/starts-with? file-dir-path %)) exclusions))]
+                                (str/starts-with? file-dir-str %)) exclusions))]
       (not excl-match))))
 
 ;; this function should be refactored into something smaller I think
+;; Probably should really look at re-writing this with babashka/fs walk-file-tree functions
   (defn recurse-paths!
     "Walks a file system storing all directories that aren't excluded. Each directory that is found will
      be written to the DB as a path-block for later processing.
 
      Params:
-     root-dir            A directory to recurse through
+     root-dir            A directory (string or a file) to recurse through
      progress-callback   (optional - default nil) A function to call back with progress updates it should expect
                          a map with progress details {:dir-count
                                                       :file-count
@@ -175,7 +176,7 @@
   "Start process to wait for new paths from which to create onsite blocks.
 
    Params:
-   backup-paths     A sequence of backup path definitions and exclusions"
+   backup-paths     A sequence of backup path definitions (maps) and exclusions"
   [backup-paths]
 
   (when-not (:started @collector-state)
