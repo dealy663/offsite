@@ -7,7 +7,9 @@
             [offsite-cli.block-processor.bp-core :as bp]
             [offsite-cli.system-utils :as su]
             [mount.core :as mount]
-            [babashka.fs :as fs]))
+            [babashka.fs :as fs]
+            [offsite-cli.db.db-core :as db]
+            [offsite-cli.collector.col-core :as col]))
 
 (defn- with-components
   [components f]
@@ -102,7 +104,12 @@
   (let [dir-path (-> dir .toFile .getCanonicalPath)]
     (if (included? dir-path)
       (do
-        (su/dbg "pre-visiting dir: " dir)
+        #_(su/dbg "pre-visiting dir: " dir ", dir-info: " @dir-info)
+        ;; The root directory isn't stored in the DB so don't look for it, but it should still
+        ;; be added to the dir-count
+        (when (> (:dir-count @dir-info) 0)
+          (is (some #(= (str dir) (-> % first :orig-path)) (:all-path-blocks @dir-info))
+              (str "The path blocks fetched from DB don't contain path: " dir)))
         (swap! dir-info update :dir-count inc)
         :continue)
       :skip-subtree)))
@@ -113,12 +120,12 @@
   (let [file      (.toFile path)
         file-path (.getCanonicalPath file)]
     (when (included? file-path)
-      (su/dbg "visiting file: " path)
+      ;(su/dbg "visiting file: " path)
       (swap! dir-info update :byte-count + (fs/size file))
       (swap! dir-info update :file-count inc)
       :continue)))
 
-(defn fs-get-info
+(defn fs-get-info-test
   "Returns the number of directories, files and total bytes pointed to by the path. This function does no
    optimizations to avoid blowing the stack. It could have issues on really deep file systems.
 
@@ -126,7 +133,9 @@
    path       A path to a directory or file"
   [path]
 
-  (reset! dir-info (assoc dir-info-empty :root path))
+  (reset! dir-info (assoc dir-info-empty :root            path
+                                         :all-path-blocks (db/get-all-path-blocks (:backup-id col/get-backup-info) -1)))
+  #_(su/dbg "got all-path-blocks: " (:all-path-blocks @dir-info))
   (let [file-dir (if (string? path) (fs/file path) path)]
     (fs/walk-file-tree file-dir {:pre-visit-dir pre-visit-dir :visit-file visit-file})
     @dir-info))
@@ -139,7 +148,7 @@
         music-block        (create-root-path-block (-> backup-cfg :backup-paths second))]
     ;(su/dbg "got music-block: " music-block)
     (testing "Creating a whole directory tree in the DB"
-      (let [result         (recurse-paths! music-path recurse-callback)
+      (let [result         (recurse-paths! music-path #_recurse-callback)
             test-dir       (io/file (:orig-path music-block))
             sub-dirs       (->> test-dir .listFiles (filter #(.isDirectory %)))
             included-count (- (count sub-dirs) (count music-exclusions))]
@@ -149,7 +158,7 @@
         (is (= (inc included-count) (:dir-count result))
             "The number of directories processed should match the sub-dirs of music-block + 1
              for the music-block root and taking away the count of excluded dirs")
-        (let [fs-info (fs-get-info music-path)]
+        (let [fs-info (fs-get-info-test music-path)]
           (is (= music-path (:root fs-info))
               "The root of fs-info should match the root that was used to start the search")
           (is (= (:dir-count fs-info) (:dir-count result))

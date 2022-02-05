@@ -132,9 +132,10 @@
 
    Params:
    backup-id   The ID of the backup in progress
-   count       (optional - default 1) The number of path-blocks to retrieve from DB
+   count       (optional - default 1) The number of path-blocks to retrieve from DB,
+               a count of -1 will return all path blocks (be careful about memory usage)
 
-   Returns a vector of path-blocks"
+   Returns a lazy seq of path-blocks"
   ([backup-id count]
 
    (let [all-paths-set (xt/q
@@ -142,7 +143,9 @@
                          '{:find  [(pull e [*])]
                            :where [[e :backup-id backup-id]
                                    [e :data-type :path-block]]})]
-     (first all-paths-set)))
+     (if (> 0 count)
+       all-paths-set
+       (take count all-paths-set))))
 
   ([backup-id]
    (get-all-path-blocks backup-id 1)))

@@ -123,7 +123,8 @@
             tx-info         (db/add-path-block! music-dir-block)
             path-block      (-> backup-id
                                 (db/get-all-path-blocks)
-                                (first))]
+                                first
+                                first)]
         (is (= (:xt/id music-dir-block) (:xt/id path-block))
             (str "The " (:orig-path music-dir-block) " was not found in DB after it was added"))))
 

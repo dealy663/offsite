@@ -110,7 +110,7 @@
                                 (str/starts-with? file-dir-path %)) exclusions))]
       (not excl-match))))
 
-
+;; this function should be refactored into something smaller I think
   (defn recurse-paths!
     "Walks a file system storing all directories that aren't excluded. Each directory that is found will
      be written to the DB as a path-block for later processing.
@@ -161,7 +161,8 @@
            (let [result {:dir-count  dir-count
                          :file-count  file-count
                          :byte-count byte-count}]
-             (progress-callback (assoc result :cwd (fs/canonicalize root-file-dir)))
+             (when progress-callback
+               (progress-callback (assoc result :cwd (fs/canonicalize root-file-dir))))
              result))))))
 
 (defn get-backup-info

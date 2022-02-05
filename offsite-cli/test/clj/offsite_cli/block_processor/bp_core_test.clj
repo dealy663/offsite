@@ -197,7 +197,6 @@
           "Creating ofs-block for a non-existing block-info should return nil")
       (let [block-state (bpc/create-ofs-block-state block-info)
             tx-info     (db/easy-ingest! block-state)
-            _ (su/dbg "returned block-state: " block-state)
             file         (:file-dir block)]
         (tu/validate-ofs-block block-state tx-info)))))
 
