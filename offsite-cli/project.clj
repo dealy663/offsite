@@ -29,6 +29,7 @@
                  [metosin/reitit "0.5.15"]
                  [metosin/ring-http-response "0.9.3"]
                  [mount "0.1.16"]
+                 [tolitius/mount-up "0.1.3"]
                  [nrepl "0.8.3"]
                  [org.clojure/clojure "1.10.3"]
                  [org.clojure/clojurescript "1.10.896" :scope "provided"]

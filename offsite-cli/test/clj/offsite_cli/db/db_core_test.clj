@@ -11,7 +11,8 @@
             [offsite-cli.db.db-core :as db]
             [offsite-cli.block-processor.bp-core :as bp]
             [offsite-cli.collector.col-core :as col]
-            [clojure.core.async :as a])
+            [clojure.core.async :as a]
+            [mount-up.core :as mu])
   (:import [java.io File]
            (org.slf4j LoggerFactory)
            (ch.qos.logback.classic Level)))
@@ -21,6 +22,8 @@
 (def empty-exclude-path {:path       "test/backup-data/music"
                          :exclusions []})
 (def test-small-dir {:path "test/backup-data/music/small"})
+
+(mu/on-upndown :info mu/log :before)
 
 (declare bp-start-test-impl bp-stop-test-impl bp-test-onsite-block-handler)
 (defn- with-components

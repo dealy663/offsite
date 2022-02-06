@@ -24,7 +24,8 @@
 
 (mount/defstate collector-chans
   :start (do
-           (new-channel! :path-chan stop-key)
+           (su/dbg "starting col-core")
+           ;(new-channel! :path-chan stop-key)
            #_(start))
   :stop (stop))
 
@@ -80,7 +81,7 @@
   "Processes paths from the :path-chan in its own thread"
   []
 
-  (a/go-loop []
+  #_(a/go-loop []
     (when-some [path (ch/take! :path-chan)]
       )))
 
