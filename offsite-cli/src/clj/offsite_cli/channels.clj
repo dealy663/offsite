@@ -38,14 +38,11 @@
    (get-ch chan-key false))
 
   ([chan-key show-chan-count]
-   (if-let [chan (-> @channels :map chan-key :chan)]
+   (when-let [chan (-> @channels :map chan-key :chan)]
      (do
        (if (and show-chan-count chan)
          (su/dbg "Before channel operation " chan-key " count: " (.count (.buf chan))))
-       chan)
-     (do
-       (log/warn "Channel " chan-key " does not exist")
-       nil))))
+       chan))))
 
 (defn put-path!
   "Adds a backup path to the path channel
@@ -231,30 +228,34 @@
       nil)))
 
 (defn subscribe
-  "Subscribe to a topic on the given channel. If there is no publisher for the requested topic
-   one will be created.
+  "Subscribe to a topic-val on the given channel. If the channel or publisher don't exist an UnsupportedOperationException
+   will be thrown.
 
    Params:
-   chan-key       The ID of the channel to subscribe to
-   topic          The topic of the publisher to subscribe to
+   chan-key       A channel key to subscribe to
+   pub-topic-fn   A publisher or topic-fn key of the publisher to subscribe to
+   topic-val      The topic subject to subscribe to
    chan-cfg       (optional) - channel config options {:timeout ms or :buf-depth (default 1)} either supply timeout
                   or buf-depth, they are mutually exclusive
 
    Returns a channel that is subscribed to the requested topic"
-  ([chan-key topic]
-   (subscribe chan-key topic {:buf-depth 1}))
+  ([chan-key pub-topic-fn topic-val]
+   (subscribe chan-key pub-topic-fn topic-val {:buf-depth 1}))
 
-  ([chan-key topic chan-cfg]
-
-   (let [{:keys [buf-depth timeout]} chan-cfg
-         chan (cond
-                (some? buf-depth) (a/chan buf-depth)
-                (some? timeout)   (a/timeout timeout))
-         pub (get-in @channels [:map chan-key :publishers topic])
-         _ (su/dbg "pub nil?: " (nil? pub) ", for topic: " topic ", on chan: " chan-key)
-         pub (if pub pub (new-publisher! chan-key topic))]
-     (a/sub pub topic chan)
-     chan)))
+  ([chan-key pub-topic-fn topic-val chan-cfg]
+   (let [chan-map (get-in @channels [:map chan-key])
+         _ (su/dbg "got chan-map: " chan-map)
+         channel  (:chan chan-map)]
+     (if (nil? channel)
+       (throw (UnsupportedOperationException. (str "Channel " chan-key " does not exist."))))
+     (if-let [pub (if (keyword? pub-topic-fn) (get-in chan-map [:publishers pub-topic-fn]) pub-topic-fn)]
+       (let [{:keys [buf-depth timeout]} chan-cfg
+             chan (cond
+                    (some? buf-depth) (a/chan buf-depth)
+                    (some? timeout) (a/timeout timeout))]
+         (a/sub pub topic-val chan)
+         chan)
+       (throw (UnsupportedOperationException. (str "Publisher " pub-topic-fn " does not exist.")))))))
 
 (defn new-all-channels!
   "Creates all channels
@@ -298,18 +299,21 @@
           (a/put! chan (:stop-key chan-map)))))))
 
 (defn stop-all-channels!
-  "Stops all channels and then closes them"
-  []
+  "Stops all channels and then closes them
+
+   Params:
+   channels    The channels data structure"
+  [channels]
 
   (su/dbg "Stopping all channels")
   (a/go
-    (r/map #(a/>! % (-> @channels :map % :stop-key)) (-> @channels :map keys))))
+    (r/map #(a/>! % (-> channels :map % :stop-key)) (-> channels :map keys))))
 
 (defn reset-channels!
   "Resets the channels ref back to the empty state"
   []
 
-  (stop-all-channels!)
+  (stop-all-channels! @channels)
   (dosync (ref-set channels empty-channels)))
 
 (defn get-channel-info

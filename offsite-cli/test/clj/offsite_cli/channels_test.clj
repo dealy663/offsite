@@ -44,11 +44,14 @@
           (is (= foo-pub pub)
               "The publisher returned should match the one stored in the channels ref"))))))
 
-#_(deftest subscribe-test
-  (let [<listener (subscribe :onsite-block-chan :test {:timeout 2000})]
-    (put! :onsite-block-chan :foo)
+(deftest subscribe-test
+  (let [foo-chan  (new-channel! :foo-chan :foo-chan-stop)
+        pub       (new-publisher! :foo-chan :topics)
+        <listener (subscribe :foo-chan :topics :subject-foo {:timeout 2000})
+        payload   {:topics :subject-foo :data :bar}]
+    (put! :foo-chan payload)
     (if-let [msg (a/<!! <listener)]
-      (is (= :foo1 msg)
+      (is (= payload msg)
           "The message :foo should already be ready before we take from <listener")
       (throw (Exception. "Message never arrived on subscribed channel")))))
 

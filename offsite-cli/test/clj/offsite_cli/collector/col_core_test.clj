@@ -16,6 +16,7 @@
   (apply mount/start components)
   (new-channel! :onsite-block-chan bp/stop-key)
   (f)
+  (su/dbg "Tearing Down")
   (stop! :onsite-block-chan)
   (apply mount/stop components))
 
