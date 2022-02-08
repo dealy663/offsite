@@ -244,7 +244,6 @@
 
   ([chan-key pub-topic-fn topic-val chan-cfg]
    (let [chan-map (get-in @channels [:map chan-key])
-         _ (su/dbg "got chan-map: " chan-map)
          channel  (:chan chan-map)]
      (if (nil? channel)
        (throw (UnsupportedOperationException. (str "Channel " chan-key " does not exist."))))

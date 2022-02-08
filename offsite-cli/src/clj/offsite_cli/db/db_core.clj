@@ -91,7 +91,11 @@
         success? (xt/tx-committed? db-node* tx-inst)]
     (if success?
       (log/info "Successfully started backup, id: " current-backup-uuid)
-      (log/error "An error has occurred when trying to start a new backup."))
+      (do
+        (let [msg (if (:in-progress last-backup)
+                    (str "The previous backup: " (:backup-id last-backup) " is still running")
+                    "An error occurred when fetching last backup details from DB.")]
+          (log/error "An error has occurred when trying to start a new backup, " msg))))
     {:backup-id   current-backup-uuid
      :tx-inst     tx-inst
      :tx-success? success?}))
@@ -112,8 +116,8 @@
       (let [tx-inst  (easy-ingest! [(assoc last-backup :close-state close-reason :in-progress false)])
             success? (xt/tx-committed? db-node* tx-inst)]
         (if success?
-          (log/info "Successfully closed backup, id: " (:xt/id last-backup))
-          (log/error "An error has occurred when trying to close backup: " (:xt/id last-backup)))
+          (log/info "Successfully closed backup, id: " (:backup-id last-backup))
+          (log/error "An error has occurred when trying to close backup: " (:backup-id last-backup)))
         tx-inst))))
 
 (defn add-path-block!
