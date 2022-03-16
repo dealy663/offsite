@@ -131,6 +131,123 @@
 
   (easy-ingest! [onsite-block]))
 
+(defn get-entity-tx
+  "Returns transaction details for an entity
+
+   Params:
+   xt-id       The ::xt/id of the entity"
+  [xt-id]
+
+  (xt/entity-tx (xt/db db-node*) xt-id))
+
+(defn get-entity-history
+  "Returns the transaction history of an entity.
+
+   Params:
+   xt-id        The ::xt/id of the entity
+   sort-order   (optional - default :desc) #{:asc, :desc}
+   options      (optional - default nil)
+                * `:with-docs?` (boolean, default false): specifies whether to include documents in the entries under the `::xt/doc` key
+                * `:with-corrections?` (boolean, default false): specifies whether to include bitemporal corrections in the sequence, sorted first by valid-time, then tx-id.
+                * `:start-valid-time`, `:start-tx-time`, `:start-tx-id` (inclusive, default unbounded): bitemporal co-ordinates to start at
+                * `:end-valid-time`, `:end-tx-time`, `:end-tx-id` (exclusive, default unbounded): bitemporal co-ordinates to stop at
+
+                No matter what `:start-*` and `:end-*` parameters you specify, you won't receive results later than the valid-time and tx-id of this DB value.
+
+                Each entry in the result contains the following keys:
+                * `::xt/valid-time`,
+                * `::xt/tx-time`,
+                * `::xt/tx-id`,
+                * `::xt/content-hash`
+                * `::xt/doc` (see `with-docs?`)"
+  ([xt-id]
+   (get-entity-history xt-id :desc))
+
+  ([xt-id sort-order]
+   (get-entity-history xt-id sort-order nil))
+
+  ([xt-id sort-order options]
+   (xt/entity-history (xt/db db-node*) xt-id sort-order options)))
+
+(defn- get-orphaned-blocks
+  "Returns a sequence of IDs of all blocks that don't have a valid backup-id. For now this only
+   returns blocks with a nil backup-id, this should be smart enough to query for the
+   existence of a supplied backup-id. Not sure if it should check on the parent-id."
+  []
+
+  (let [orphan-block-ids (xt/q
+                          (xt/db db-node*)
+                            '{:find   [e]
+                              :where [[e :backup-id nil]]})]
+    orphan-block-ids))
+
+(defn get-entity-tx-time
+  "Return the tx-instance(s) indicated by the selector.
+
+  Params:
+  xt-id         The ::xt/id of the entity
+  selector      #{:eldest :newest :all} tx-time is an instance already retrieved.
+                :eldest - the #inst of the oldest entity
+                :newest - the #inst of the youngest entity
+                :all - all #instances of the entity
+
+  Returns a vector of #inst"
+  [xt-id selector]
+
+  (cond
+    (= :newest selector)
+    [(-> xt-id get-entity-tx ::xt/tx-time)]
+
+    (= :eldest selector)
+    [(-> xt-id (get-entity-history :asc) first :xtdb.api/tx-time)]
+
+    (= :all selector)
+    (mapv #(:xtdb.api/tx-time %) (get-entity-history xt-id))
+
+    :else (do
+            (log/warn selector " is an invalid selector, must be from #{:eldest :newest :all}"))))
+
+(defn- delete-entities
+  "A sequence of xt/id values for the entities to be deleted.
+
+   Params:
+   id-seq      The IDs of the entities to be deleted (a seq of vectors containing xt/id values)
+   inst-opts   #{:eldest :newest :all}  one keyword from this set indicating which #inst to delete
+   sync?       (optional - default true) If true does a sync operation before returning"
+  ([id-seq inst-opts]
+   (delete-entities id-seq inst-opts true))
+
+  ([id-seq inst-opts sync?]
+   (xt/submit-tx db-node*
+                 (mapv #(let [tx-time (get-entity-tx-time (first %) inst-opts)]
+                          (println "got tx-time " tx-time)
+                          (-> (concat [::xt/delete] %)
+                              (concat tx-time)
+                              vec)) id-seq))
+   (when sync?
+     (xt/sync db-node*))))
+
+(defn- evict-entities
+  "Event multiple entities from XTDB
+
+   Params:
+   id-seq      The xt/IDs of the entities to be deleted (a seq of vectors containing xt/id values)
+   inst-opts   #{:eldest :newest :all}  one keyword from this set indicating which #inst to delete
+   sync?       (optional - default true) If true does a sync operation before returning"
+  ([id-seq inst-opts]
+   (evict-entities id-seq inst-opts true))
+
+  ([id-seq inst-opts sync?]
+   (let [f (fn []
+             (xt/submit-tx db-node*
+                           (mapv #(let [tx-time (get-entity-tx-time (first %) inst-opts)]
+                                    (-> (concat [::xt/evict] %)
+                                        (concat tx-time)
+                                        vec)) id-seq)))]
+     (if sync?
+       (xt/await-tx db-node* (f))
+       (f)))))
+
 (defn get-all-path-blocks
   "Retrieves a group of path-blocks
 
