@@ -1,6 +1,10 @@
 ;; A list of paths to be backed up by Offsite
 ;; A path can include vector of files or directories to be included
 ;; TODO: Figure out some intelligent way to include regexes or globstrs for the excludes
+;;
+;; Currently default dir is in test/backup-data/active. This directory is not stored in git
+;; that way each individual developer can make changes in the active directory with out affecting
+;; the unit tests or the behavior of any other developers
 
 [{:path "test/backup-data/active/du.out"}
  {:path "test/backup-data/active/music"
