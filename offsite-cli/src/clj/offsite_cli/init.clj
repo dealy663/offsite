@@ -16,6 +16,7 @@
 (defstate backup-paths
   :start (do
            (get-paths)
+           ;;wtf is this? should be removed
            su/paths-config))
 
 (defn reset-default-backup-paths

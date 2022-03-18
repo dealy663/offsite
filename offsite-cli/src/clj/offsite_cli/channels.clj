@@ -3,16 +3,18 @@
             [mount.core :refer [defstate]]
             [mount.core :as mount]
             [offsite-cli.system-utils :as su]
-            [clojure.tools.logging :as log]))
+            [clojure.tools.logging :as log]
+            [clojure.core.reducers :as r]))
 
-(def chan-atom (atom {:chan-depth         10
-                      :channels           {}
-                      :path-chan          {:chan nil :stop-key nil}
-                      :onsite-block-chan  nil
-                      :offsite-block-chan nil}))
+;(def chan-atom (atom {:chan-depth         10
+;                      :channels           {}
+;                      :path-chan          {:chan nil :stop-key nil}
+;                      :onsite-block-chan  nil
+;                      :offsite-block-chan nil}))
 
-(def channels (ref {:chan-depth 10
-                    :map        {}}))
+(def empty-channels {:chan-depth 10
+                     :map        {}})
+(def channels (ref empty-channels))
 
 (def empty-channel {:chan     nil
                     :closed   nil
@@ -36,10 +38,11 @@
    (get-ch chan-key false))
 
   ([chan-key show-chan-count]
-   (let [chan (-> @channels :map chan-key :chan)]
-     (if (and show-chan-count chan)
-       (su/dbg "Before channel operation " chan-key " count: " (.count (.buf chan))))
-     chan)))
+   (when-let [chan (-> @channels :map chan-key :chan)]
+     (do
+       (if (and show-chan-count chan)
+         (su/dbg "Before channel operation " chan-key " count: " (.count (.buf chan))))
+       chan))))
 
 (defn put-path!
   "Adds a backup path to the path channel
@@ -110,13 +113,17 @@
    Returns the item taken out of the channel"
   ([chan-key dbg]
 
-   (let [chan (get-ch chan-key)
-         dbg-fn (when dbg (fn [_]
-                            (su/dbg "After take! channel " chan-key " count: " (channel-count chan))))
-         result (if dbg
-                  (a/take! chan dbg-fn)
-                  (a/<!! chan))]
-     result))
+   (su/dbg "taking from chan: " chan-key)
+   (if-let [chan (get-ch chan-key)]
+     (let [dbg-fn (when dbg (fn [_]
+                              (su/dbg "After take! channel " chan-key " count: " (channel-count chan))))
+           result (if dbg
+                    (a/take! chan dbg-fn)
+                    (a/<!! chan))]
+       result)
+     (let [err-msg (str "Cannot take! from non-existing channel: " chan-key)]
+       (log/error err-msg)
+       (throw (UnsupportedOperationException. err-msg)))))
 
   ([chan-key]
    (take! chan-key :false)))
@@ -186,9 +193,10 @@
 
    Returns the newly created channel"
   ([channel-key stop-key depth-override]
-   (let [new-chan (assoc empty-channel :chan     (a/chan depth-override)
-                                       :closed   false
-                                       :stop-key stop-key)]
+   (let [new-chan (assoc empty-channel :chan        (a/chan depth-override)
+                                       :publishers  {}
+                                       :closed      false
+                                       :stop-key    stop-key)]
      (dosync
        (let [old-chan (get-ch channel-key)]
          (when (and old-chan (> (channel-count old-chan) 0))
@@ -197,7 +205,56 @@
      new-chan))
 
   ([channel-key stop-key]
-   (new-channel! channel-key stop-key (:chan-depth @chan-atom))))
+   (new-channel! channel-key stop-key (:chan-depth @channels))))
+
+(defn new-publisher!
+  "Creates a new publisher on a channel. Updates the channels ref with the new publication
+
+   Params:
+   chan-key     The channel's ID keyword
+   topic        A keyword defining the topic for the subscribers
+
+   Returns a new publication or nil if the channel doesn't exist"
+  [chan-key topic]
+
+  (if-let [chan (get-ch chan-key)]
+    (let [pub (a/pub chan topic)]
+      (when-some [_ (get-in @channels [:map chan-key :publishers topic])]
+        (log/warn "Replacing existing publisher: " topic ", on chan: " chan-key))
+      (dosync (alter channels update-in [:map chan-key :publishers] assoc topic pub))
+      pub)
+    (do
+      (log/error "Cannot create publisher for non-existing channel: " chan-key)
+      nil)))
+
+(defn subscribe
+  "Subscribe to a topic-val on the given channel. If the channel or publisher don't exist an UnsupportedOperationException
+   will be thrown.
+
+   Params:
+   chan-key       A channel key to subscribe to
+   pub-topic-fn   A publisher or topic-fn key of the publisher to subscribe to
+   topic-val      The topic subject to subscribe to
+   chan-cfg       (optional) - channel config options {:timeout ms or :buf-depth (default 1)} either supply timeout
+                  or buf-depth, they are mutually exclusive
+
+   Returns a channel that is subscribed to the requested topic"
+  ([chan-key pub-topic-fn topic-val]
+   (subscribe chan-key pub-topic-fn topic-val {:buf-depth 1}))
+
+  ([chan-key pub-topic-fn topic-val chan-cfg]
+   (let [chan-map (get-in @channels [:map chan-key])
+         channel  (:chan chan-map)]
+     (if (nil? channel)
+       (throw (UnsupportedOperationException. (str "Channel " chan-key " does not exist."))))
+     (if-let [pub (if (keyword? pub-topic-fn) (get-in chan-map [:publishers pub-topic-fn]) pub-topic-fn)]
+       (let [{:keys [buf-depth timeout]} chan-cfg
+             chan (cond
+                    (some? buf-depth) (a/chan buf-depth)
+                    (some? timeout) (a/timeout timeout))]
+         (a/sub pub topic-val chan)
+         chan)
+       (throw (UnsupportedOperationException. (str "Publisher " pub-topic-fn " does not exist.")))))))
 
 (defn new-all-channels!
   "Creates all channels
@@ -223,8 +280,8 @@
   [chan-key]
 
   (dosync
-    (let [chan-map (-> @channels :map chan-key)]
-      (-> chan-map :chan a/close!)
+    (when-let [chan (get-ch chan-key)]
+      (a/close! chan)
       (alter channels assoc-in [:map chan-key :closed] true))))
 
 (defn stop!
@@ -234,19 +291,29 @@
    chan-key      The key identifying the channel to stop"
   [chan-key]
 
-  (a/put! (get-ch chan-key) (-> @channels :map chan-key :stop-key)))
+  (when-let [chan (get-ch chan-key)]
+    (let [chan-map (get-in @channels [:map chan-key])]
+      (when-some [closed? (:closed chan-map)]
+        (when-not closed?
+          (a/put! chan (:stop-key chan-map)))))))
 
 (defn stop-all-channels!
-  "Stops all channels and then closes them"
+  "Stops all channels and then closes them
+
+   Params:
+   channels    The channels data structure"
+  [channels]
+
+  (su/dbg "Stopping all channels")
+  (a/go
+    (r/map #(a/>! % (-> channels :map % :stop-key)) (-> channels :map keys))))
+
+(defn reset-channels!
+  "Resets the channels ref back to the empty state"
   []
 
-  (let [path-chan      (get-ch :path-chan)
-        ons-block-chan (get-ch :onsite-block-chan)]
-    (a/go
-      (when path-chan
-        (a/>! path-chan (-> @chan-atom :path-chan :stop-key)))
-      (when ons-block-chan
-        (a/>! ons-block-chan (-> @chan-atom :onsite-block-chan :stop-key))))))
+  (stop-all-channels! @channels)
+  (dosync (ref-set channels empty-channels)))
 
 (defn get-channel-info
   "Get current channel status information. Includes state (open, closed), items in channel buffer etc.

@@ -9,7 +9,6 @@
             [clojure.java.io :as io]
             [offsite-cli.collector.col-core :as col]
             [offsite-cli.channels :refer :all]
-            [mount.core :as mount]
             [offsite-cli.db.db-core :as db]
             [offsite-cli.system-utils :as su]
             [offsite-cli.remote.os-service :as svc]
