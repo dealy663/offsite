@@ -271,6 +271,50 @@
   ([backup-id]
    (get-all-path-blocks backup-id 1)))
 
+(defn list-all-path-ids
+  "Generate a sequence of path-block IDs belonging to a backup
+
+  Params:
+  backup-id        The :xt/id of the backup
+
+  Returns a sequence of :xt/id"
+  [backup-id]
+
+  (let [uuid (if (string? backup-id) (UUID/fromString backup-id) backup-id)]
+    (xt/q
+      (xt/db db-node*)
+      '{:find  [e]
+        :where [[e :backup-id bid]
+                [e :data-type :path-block]]
+        :in    [bid]} uuid)))
+
+(defn- delete-backup
+  "Deletes all backup entities: path-blocks and the backup entity itself
+
+   Params:
+   backup-id     The :xt/id of the backup
+
+   Returns a sequence of all entities that were deleted"
+  [backup-id]
+
+  (let [all-path-ids (concat (list-all-path-ids backup-id) [backup-id])]
+    (delete-entities all-path-ids :all)
+    all-path-ids))
+
+(defn- evict-backup
+  "Evicts all backup entities: path-blocks and the backup entity itself. This function will first call
+   delete-backup.
+
+   Params:
+   backup-id     The :xt/id of the backup"
+  [backup-id]
+
+  (let [evict-ids (list-all-path-ids backup-id)
+        evict-ids (if (empty? evict-ids)
+                    [[(su/offsite-id)]]                     ;; this needs to be a seq of xt/id vectors
+                    (concat evict-ids [(su/offsite-id)]))]
+    (evict-entities evict-ids :all)))
+
 (defn get-path-blocks-lazy
   "Creates a cursor like lazy seq for a backup's path-blocks. When processing from this seq
    the logic should probably be in a with-open expression to auto-close the iterator.
