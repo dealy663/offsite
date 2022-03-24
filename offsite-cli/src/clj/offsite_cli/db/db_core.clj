@@ -207,17 +207,32 @@
     :else (do
             (log/warn selector " is an invalid selector, must be from #{:eldest :newest :all}"))))
 
+
+(defn traverse-entities
+  "Transform entities"
+  [f coll]
+
+  (fn
+    ;([inst-opts coll]
+    ; ())
+
+    ([inst-opts coll sync?]
+     (xt/submit-tx db-node*
+                   (mapv #(let [tx-time (get-entity-tx-time (first %) inst-opts)]
+                            (f tx-time %)) coll)))))
+
 (defn- delete-entities
   "A sequence of xt/id values for the entities to be deleted.
 
    Params:
-   id-seq      The IDs of the entities to be deleted (a seq of vectors containing xt/id values)
-   inst-opts   #{:eldest :newest :all}  one keyword from this set indicating which #inst to delete
-   sync?       (optional - default true) If true does a sync operation before returning"
-  ([id-seq inst-opts]
-   (delete-entities id-seq inst-opts true))
+   inst-opts   #{:eldest :newest :all}  (required) - one keyword from this set indicating which #inst to delete
+               #{:delete :evict}        (required) - one keyword indicating to delete or evict
+   id-seq      The IDs of the entities to be deleted (a seq of vectors containing xt/id values
+   sync?       (optional - default = true) Wait for DB transaction fo finishe before return"
+  ([inst-opts id-seq]
+   (delete-entities inst-opts id-seq true))
 
-  ([id-seq inst-opts sync?]
+  ([inst-opts id-seq sync?]
    (xt/submit-tx db-node*
                  (mapv #(let [tx-time (get-entity-tx-time (first %) inst-opts)]
                           (println "got tx-time " tx-time)
@@ -247,6 +262,12 @@
      (if sync?
        (xt/await-tx db-node* (f))
        (f)))))
+
+(defn- evict-ents
+  [inst-opts id-seq]
+
+  (traverse-entities (fn [tx-time xt-id]
+                       (into (concat [::xt/evict xt-id]) tx-time)) id-seq))
 
 (defn get-all-path-blocks
   "Retrieves a group of path-blocks
@@ -301,6 +322,14 @@
     (delete-entities all-path-ids :all)
     all-path-ids))
 
+;(defn backup-xf
+;  "Transform a backup's data"
+;  [f id-coll]
+;
+;  (fn [backup-id]
+;    (let [ids (into id-coll [[(su/offsite-id)]])]
+;      )))
+;
 (defn- evict-backup
   "Evicts all backup entities: path-blocks and the backup entity itself. This function will first call
    delete-backup.

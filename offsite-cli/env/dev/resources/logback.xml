@@ -30,4 +30,6 @@
         <appender-ref ref="STDOUT" />
         <appender-ref ref="FILE" />
     </root>
+    <logger name="xtdb" level="INFO" />
+    <logger name="xtdb.bench" level="INFO" />
 </configuration>

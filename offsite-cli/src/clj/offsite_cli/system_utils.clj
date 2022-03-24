@@ -23,16 +23,17 @@
    []
 
    ;; This needs to be adjusted, so it will work on Windows also
-   (try
-      (-> (shell/sh "hostname") (:out) (str/trim))
-      (catch Exception _e
-         (try
-            (str/trim (slurp "/etc/hostname"))
-            (catch Exception _e
-               (try
-                  (.getHostName (InetAddress/getLocalHost))
-                  (catch Exception _e
-                     nil)))))))
+   (when-let [fq-hostname (try
+                           (-> (shell/sh "hostname") (:out) (str/trim))
+                           (catch Exception _e
+                              (try
+                                 (str/trim (slurp "/etc/hostname"))
+                                 (catch Exception _e
+                                    (try
+                                       (.getHostName (InetAddress/getLocalHost))
+                                       (catch Exception _e
+                                          nil))))))]
+      (-> fq-hostname (str/split #"\.") first)))
 
 (defn offsite-user-id
    "Returns the Offsite ID for this current instance"
@@ -66,7 +67,7 @@
    "Returns the Offsite ID of this system."
    []
 
-   (str (:user-uuid (offsite-user-id)) "-" (hostname)))
+   (.toLowerCase (str (:user-uuid (offsite-user-id)) "-" (hostname))))
 
 (defmacro dbg [& messages]
    `(log/debug "\n\t***------->>>" (str ~@messages)))

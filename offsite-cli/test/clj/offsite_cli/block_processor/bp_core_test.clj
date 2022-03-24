@@ -12,7 +12,8 @@
             [clojure.java.io :as io]
             [offsite-cli.db.db-core :as db]
             [offsite-cli.test-utils :as tu]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [offsite-cli.block-processor.bp-core :as bp])
   (:import [java.io File]
            [java.nio.file Files]
            (java.util UUID)))
@@ -31,10 +32,12 @@
 (defn- with-components
   [components f]
   (apply mount/start components)
+  (ch/new-channel! :onsite-block-chan bp/stop-key)
   ;;(bp/start bp-start-test-impl)
   (f)
+  ;(ch/stop-all-channels! ch/channels)
+  (ch/reset-channels!)
   (apply mount/stop components)
-  ;(ch/stop-all-channels!)
   #_(bp/stop bp-stop-test-impl))
 
 (use-fixtures
@@ -149,7 +152,7 @@
     (is (= :started (bpon/start (simple-start-test-impl)))
         "The simple start implementation should just return :started")
     (is (= true (:started @bpc/bp-state)))
-    (su/dbg "stopping simple-stop-test-impl")
+    ;(su/dbg "stopping simple-stop-test-impl")
     (is (= :stopped (bpon/stop simple-stop-test-impl))
         "The simple start implementation should just return :stopped")
     (is (= false (:started @bpc/bp-state)))
@@ -169,7 +172,7 @@
   (let [backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
         file-path   (-> backup-cfg :backup-paths first)]
     (testing "Validate creating a block-info map"
-      (let [block      (col/create-root-path-block file-path)
+      (let [block      (col/create-path-block (:path file-path))
             block-info (bpc/make-block-info block)
             file        (io/file (:path file-path))]
         (is (= true (some? block-info))
@@ -190,7 +193,7 @@
 (deftest create-ofs-block-state-test
   (let [backup-cfg (init/get-paths (str test-configs-dir "/backup-paths.edn"))
         file-path   (-> backup-cfg :backup-paths first)
-        block      (col/create-root-path-block file-path)
+        block      (col/create-path-block (:path file-path))
         block-info (bpc/make-block-info block)]
     (testing "create-ofs-block-state"
       (is (= nil (bpc/create-ofs-block-state nil))
@@ -230,7 +233,7 @@
         file-path   {:path (.getPath tmp-file)}]
     (.deleteOnExit tmp-file)
     (testing "Processing a block representing a single file"
-      (let [block       (col/create-root-path-block file-path)
+      (let [block       (col/create-path-block (:path file-path))
             block-info  (bpc/make-block-info block)
             block-state (bpc/create-ofs-block-state block-info)
             tx-info     (db/easy-ingest! block-state)
@@ -244,7 +247,7 @@
   (let [backup-cfg   (init/get-paths (str test-configs-dir "/backup-paths.edn"))
         music-path   (-> backup-cfg :backup-paths second)]
     (testing "Validate the creation of a child dir path"
-      (let [ons-dir-block (col/create-root-path-block music-path)
+      (let [ons-dir-block (col/create-path-block (:path music-path))
             xs-dir-path   (io/file (str (:path music-path) "/extra-small"))
             child-dir     (bpon/create-child-dir xs-dir-path ons-dir-block)]
         (is (= true (str/ends-with? (-> music-path :path) "music"))

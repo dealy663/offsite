@@ -13,10 +13,13 @@
              [offsite-cli.block-processor.offsite :as bpof]
              [offsite-cli.collector.col-core :as col]
              [offsite-cli.db.db-core :as db]
+             [manifold.bus :as mb]
+             [manifold.stream :as ms]
+             [manifold.deferred :as md]
              [mount.core :as mount]))
 
 (declare start stop)
-(mount/defstate block-processor-chans
+(mount/defstate onsite-bp-state
                 :start   (start)
                 :stop    (stop))
 
@@ -44,7 +47,7 @@
     ons-dir-parent  ons-file-block for parent directory"
    [file ons-dir-parent]
 
-   (let [ons-file-block (col/create-root-path-block {:path (.getCanonicalPath file)} ons-dir-parent)]
+   (let [ons-file-block (col/create-path-block {:path (.getCanonicalPath file)} ons-dir-parent)]
       (process-file ons-file-block)))
 
 (defn process-dir
@@ -124,14 +127,19 @@
 (defn- path-block-handler
   "Overrideable logic for processing path-blocks that have been added to the DB for the current
    backup."
-  [_]
+  ;; for now just making this callable with an ignored parameter or nothing at all
+  ([]
+   (path-block-handler nil))
 
-  (with-open [path-seq-itr (db/get-path-blocks-lazy (:backup-id col/get-backup-info))]
-    (doseq [path-block (iterator-seq path-seq-itr)]
-      (su/dbg "received block: " path-block)
-      (->> path-block
-           (process-block)
-           (ch/put! :offsite-block-chan)))))
+  ([_]
+
+   (with-open [path-seq-itr (db/get-path-blocks-lazy (:backup-id col/get-backup-info))]
+     (doseq [path-block (iterator-seq path-seq-itr)]
+       (su/dbg "received block: " path-block)
+       (->> path-block
+            (process-block)
+            ;(ch/put! :offsite-block-chan)
+            )))))
 
 (defn onsite-block-listener
    "Starts a thread which listens to the ::onsite-block-chan for new blocks which need
@@ -163,14 +171,47 @@
     ;;(onsite-block-listener onsite-block-handler)
     (onsite-block-listener path-block-handler)))
 
+(defn onsite-block-monitor
+  "Monitor function for onsite-block messages from the collector"
+  [msg]
+
+  (dosync
+    (let [path-processor-future (:onsite-path-processor @bpc/bp-state)]
+      (if (or (nil? path-processor-future)
+              (future-done? path-processor-future))
+        (alter bpc/bp-state assoc :onsite-path-processor (future (path-block-handler)))
+        nil))))
+
+(defn root-path-monitor
+  "Handles notifications for new root-paths that are ready for processing.
+
+   Params:
+   stream     A manifold stream that has subscribed to the event-bus for :root-path messages
+   handler-fn (optional - default onsite-block-monitor) Overridable function to handle the root-path msg"
+  ([stream]
+   (root-path-monitor stream onsite-block-monitor))
+
+  ([stream handler-fn]
+
+   (a/go-loop []
+     (when-let [deferred-root (ms/take! stream)]
+       (handler-fn @deferred-root)
+       (recur)))))
+
 (defn- start-default
    "Standard implementation of start, can be overridden in test by passing customized body"
    []
 
-   (ch/new-channel! :onsite-block-chan bpc/stop-key)
-   (ch/new-channel! :offsite-block-chan bpc/stop-key)
-   (onsite-block-listener)
-   (bpof/offsite-block-listener))
+  (let [onsite-ch (ch/new-channel! :onsite-block-chan bpc/stop-key)
+        onsite-pub (ch/new-publisher! :onsite-block-chan :topic)
+        offsite-ch (ch/new-channel! :offsite-block-chan bpc/stop-key)
+        offsite-pub (ch/new-publisher! :offsite-block-chan :topic)]
+    (-> (:bus @ch/channels)
+        (mb/subscribe :root-path)
+        (root-path-monitor))
+    ;(ch/subscribe onsite-pub :root-block onsite-block-monitor)
+    ;(bpof/offsite-block-listener)
+    ))
 
 (defn start
    "Start processing block-data from the queue
@@ -180,8 +221,8 @@
    ([start-impl]
 
     (when-not (:started @bpc/bp-state)
-       (su/dbg "Starting bp-core with impl fn: " start-impl)
-       (dosync (alter bpc/bp-state assoc-in [:started] true))
+      ;(su/dbg "Starting bp-core with impl fn: " start-impl)
+       (dosync (alter bpc/bp-state assoc :started true :onsite-path-processor nil))
        (start-impl)))
 
    ([]

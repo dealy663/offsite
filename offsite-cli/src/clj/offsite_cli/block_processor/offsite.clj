@@ -103,8 +103,9 @@
    [prepped-block]
 
    (let [{:keys [offsite-block block-state]} prepped-block]
-      (assoc prepped-block :input-stream (io/input-stream (:file-dir offsite-block))
-                           :prep-state   :opened)))
+     (when-let [file-dir (:file-dir offsite-block)]
+       (assoc prepped-block :input-stream (io/input-stream file-dir)
+                            :prep-state   :opened))))
 
 (defn- offsite-block-handler
    ""
@@ -131,7 +132,7 @@
        (println "OfBL: started loop thread for offsite-blocks")
        (while (:started @bpc/bp-state)
           (su/dbg "OfBL: waiting for next offsite block")
-          (let [offsite-block (a/<! (ch/get-ch :offsite-block-chan))]
+          (when-let [offsite-block (a/<! (ch/get-ch :offsite-block-chan))]
              (when-not (= bpc/stop-key offsite-block)
                 (offsite-block-handler-impl offsite-block))))))
 

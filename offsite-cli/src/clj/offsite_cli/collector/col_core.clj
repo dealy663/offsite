@@ -8,7 +8,8 @@
             [clojure.tools.logging :as log]
             [offsite-cli.system-utils :as su]
             [clojure.string :as str]
-            [babashka.fs :as fs]))
+            [babashka.fs :as fs]
+            [manifold.bus :as mb]))
 
 (def stop-key :stop-collector)
 
@@ -41,32 +42,15 @@
    (create-path-block file-dir nil))
 
   ([file-dir parent-block]
-   {:xt/id     (.hashCode file-dir)
-    :root-path (.getCanonicalPath file-dir)
-    :orig-path (.getPath file-dir)
-    :data-type :path-block
-    :backup-id (:backup-id (get-backup-info))
-    ;:file-dir
-    :parent-id (if (some? parent-block) (:xt/id parent-block))
-    :size      (if (.isDirectory file-dir) 0 (.length file-dir))}))
-
-(defn create-root-path-block
-  "Create a backup block
-
-  params:
-  path-defs     A backup path, with possible exclusions
-  parent-block  (optional - default nil) The ID of the ons parent block
-
-  returns:     A backup block"
-  ([{:keys [path exclusions] :as path-defs} parent-block]
-
-   ;; I'm still of mixed opinions about whether to store an actual file object vs a path string
-   ;; here. It looks like a valid file object can be written to XTDB, staying with path string for now
-   (let [file-dir (io/file path)]
-     (create-path-block file-dir parent-block)))
-
-  ([path-defs]
-   (create-root-path-block path-defs nil)))
+   (let [file-dir-path (if (string? file-dir) (io/file file-dir) file-dir)]
+     {:xt/id     (.hashCode file-dir-path)
+      :root-path (.getCanonicalPath file-dir-path)
+      :orig-path (.getPath file-dir-path)
+      :data-type :path-block
+      :backup-id (:backup-id (get-backup-info))
+      ;:file-dir
+      :parent-id (if (some? parent-block) (:xt/id parent-block))
+      :size      (if (.isDirectory file-dir-path) 0 (.length file-dir-path))})))
 
 ;(defn start [backup-paths]
 ;  "Start processing the files in the backup paths, cataloguing current state, changed files
@@ -151,6 +135,8 @@
                  sum-files (->> child-files
                                 (map #(.length %))
                                 (reduce +))]
+             (when (nil? parent-id)
+               (mb/publish! (:bus @ch/channels) :root-path path-block))
              (when progress-callback
                (progress-callback {:cwd        file-dir
                                    :dir-count  dir-count
@@ -177,20 +163,25 @@
   "Start process to wait for new paths from which to create onsite blocks.
 
    Params:
-   backup-paths     A sequence of backup path definitions (maps) and exclusions"
-  [backup-paths]
+   backup-root-paths     A sequence of backup path definitions (maps) and exclusions"
+  [backup-root-paths]
 
   (when-not (:started @collector-state)
     (println "Starting Collector started: " (:started @collector-state))
+    (when-not (nil? (:backup-paths @collector-state))
+      (dosync (alter collector-state assoc :backup-paths nil)))
 
     (try
-      (let [backup-info (db/start-backup! backup-paths :adhoc)]
+      (let [backup-info (db/start-backup! backup-root-paths :adhoc)]
         (dosync (alter collector-state assoc :started true :backup-info backup-info))
-        (doseq [path-def backup-paths]
+        (doseq [path-def backup-root-paths]
+          (su/dbg "got path-def: " path-def)
           (dosync (alter collector-state update-in [:backup-paths] conj path-def))
-          (-> (create-root-path-block path-def)
-              (db/add-path-block!)
-              (recurse-paths!))))
+          (let [path-block (create-path-block path-def)
+                root-path  (:root-path path-block)]
+            ;(db/add-path-block! path-block)
+            ;(mb/publish! (:bus @ch/channels) :root-path path-block)
+            (recurse-paths! root-path))))
       (catch Exception e
         (log/error "Collector stopped with exception: " (.getMessage e))))))
 
@@ -200,5 +191,6 @@
   (when (:started @collector-state)
     (println "Collector: stopping")
 
-    (dosync (alter collector-state assoc-in [:started] false))
-    #_(put! :path-chan stop-key)))
+    (dosync (alter collector-state assoc :started false))
+    #_(put! :path-chan stop-key)
+    (db/stop-backup! "Stopped from collector.")))

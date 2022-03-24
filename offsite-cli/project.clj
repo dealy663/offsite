@@ -14,6 +14,7 @@
                  [expound "0.8.10"]
                  [funcool/struct "1.4.0"]
                  [json-html "0.4.7"]
+                 [manifold "0.2.3"]
                  ;                 [com.xtdb/xtdb-core "1.20.0-DME-SNAPSHOT"]
                  [com.xtdb/xtdb-core "dev-SNAPSHOT"]        ;locally built versions from xtdb fork
                  [com.xtdb/xtdb-lmdb "dev-SNAPSHOT"]        ;using lwjgl 3.3.0
