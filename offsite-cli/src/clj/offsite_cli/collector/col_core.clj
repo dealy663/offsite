@@ -49,7 +49,7 @@
       :data-type :path-block
       :backup-id (:backup-id (get-backup-info))
       ;:file-dir
-      :parent-id (if (some? parent-block) (:xt/id parent-block))
+      :parent-id (if (some? parent-block) parent-block)
       :size      (if (.isDirectory file-dir-path) 0 (.length file-dir-path))})))
 
 ;(defn start [backup-paths]
@@ -68,6 +68,7 @@
   #_(a/go-loop []
     (when-some [path (ch/take! :path-chan)]
       )))
+
 
 (defn included?
   "Returns true if the file/dir path string is not in an exclusion list. This function expects that
@@ -121,20 +122,22 @@
               byte-count 0]
          ;(su/dbg "got dirs: " dirs)
          (if-some [current-dir (first dirs)]
-           (let [{:keys [parent-id file-dir]} current-dir
-                 path-block (create-path-block file-dir parent-id)
-                 ;_ (su/dbg "created path block: " path-block)
-                 tx-info (db/add-path-block! path-block)
-                 children (vec (.listFiles file-dir))
-                 ;_ (su/dbg "got children: " children)
-                 child-dirs (->> children
-                                 (filter #(and (.isDirectory %)
-                                              (included? (str (fs/canonicalize %)))))
-                                 (map (fn [dir] {:parent-id (:xt/id path-block) :file-dir dir}))) ;; too lazy, these to filters should be in a single
-                 child-files (filter #(not (.isDirectory %)) children) ;; function
-                 sum-files (->> child-files
-                                (map #(.length %))
-                                (reduce +))]
+           (let [{:keys [parent-id
+                         file-dir]}   current-dir
+                 path-block          (create-path-block file-dir parent-id)
+                 ;_                  (su/dbg "created path block: " path-block)
+                 tx-info             (db/add-path-block! path-block)
+                 children            (into [] (.listFiles file-dir))
+                 _                   (su/dbg "got children: " children)
+                 child-dirs          (->> children
+                                       (filter #(and (.isDirectory %)
+                                                    (included? (str (fs/canonicalize %)))))
+                                       (mapv (fn [dir] {:parent-id (:xt/id path-block) :file-dir dir}))) ;; too lazy, these to filters should be in a single
+                 _  (su/dbg "got child-dirs: " child-dirs)
+                 child-files          (filter #(not (.isDirectory %)) children) ;; function
+                 sum-files            (->> child-files
+                                       (map #(.length %))
+                                       (reduce +))]
              (when (nil? parent-id)
                (mb/publish! (:bus @ch/channels) :root-path path-block))
              (when progress-callback
@@ -163,27 +166,31 @@
   "Start process to wait for new paths from which to create onsite blocks.
 
    Params:
-   backup-root-paths     A sequence of backup path definitions (maps) and exclusions"
-  [backup-root-paths]
+   backup-root-paths     A sequence of backup path definitions (maps) and exclusions
+   progress-callback     (optional - default is nil) A function to call for progress updates during backup"
+  ([backup-root-paths]
+   (start backup-root-paths nil))
 
-  (when-not (:started @collector-state)
-    (println "Starting Collector started: " (:started @collector-state))
-    (when-not (nil? (:backup-paths @collector-state))
-      (dosync (alter collector-state assoc :backup-paths nil)))
+  ([backup-root-paths progress-callback]
+   (when-not (:started @collector-state)
+     (println "Starting Collector started: " (:started @collector-state))
+     (when-not (nil? (:backup-paths @collector-state))
+       (dosync (alter collector-state assoc :backup-paths nil)))
 
-    (try
-      (let [backup-info (db/start-backup! backup-root-paths :adhoc)]
-        (dosync (alter collector-state assoc :started true :backup-info backup-info))
-        (doseq [path-def backup-root-paths]
-          (su/dbg "got path-def: " path-def)
-          (dosync (alter collector-state update-in [:backup-paths] conj path-def))
-          (let [path-block (create-path-block path-def)
-                root-path  (:root-path path-block)]
-            ;(db/add-path-block! path-block)
-            ;(mb/publish! (:bus @ch/channels) :root-path path-block)
-            (recurse-paths! root-path))))
-      (catch Exception e
-        (log/error "Collector stopped with exception: " (.getMessage e))))))
+     (try
+       (let [backup-info (db/start-backup! backup-root-paths :adhoc)]
+         (dosync (alter collector-state assoc :started true :backup-info backup-info))
+         (doseq [path-def backup-root-paths]
+           (su/dbg "got path-def: " path-def)
+           (dosync (alter collector-state update-in [:backup-paths] conj path-def))
+           (let [path-block (create-path-block (:path path-def))
+                 root-path (:root-path path-block)]
+             ;(db/add-path-block! path-block)
+             ;(mb/publish! (:bus @ch/channels) :root-path path-block)
+             (recurse-paths! root-path progress-callback))))
+       (catch Exception e
+         (log/error "Collector stopped with exception: " (.getMessage e))
+         (.printStackTrace e))))))
 
 (defn stop []
   "Stops the block-processor, will wait for all blocks in queue to be finished."

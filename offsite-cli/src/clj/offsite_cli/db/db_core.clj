@@ -253,6 +253,7 @@
    (evict-entities id-seq inst-opts true))
 
   ([id-seq inst-opts sync?]
+   (log/warn "Evicting the following entities: " id-seq)
    (let [f (fn []
              (xt/submit-tx db-node*
                            (mapv #(let [tx-time (get-entity-tx-time (first %) inst-opts)]
@@ -341,7 +342,7 @@
   (let [evict-ids (list-all-path-ids backup-id)
         evict-ids (if (empty? evict-ids)
                     [[(su/offsite-id)]]                     ;; this needs to be a seq of xt/id vectors
-                    (concat evict-ids [(su/offsite-id)]))]
+                    (concat evict-ids [[(su/offsite-id)]]))]
     (evict-entities evict-ids :all)))
 
 (defn get-path-blocks-lazy

@@ -24,7 +24,7 @@
 (defn start-collector
   []
 
-  (col/start (:backup-paths @init/backup-paths)))
+  (col/start (:backup-paths @init/backup-paths) #(su/dbg "progress: " %)))
 
 (defn reset-db!
   []
