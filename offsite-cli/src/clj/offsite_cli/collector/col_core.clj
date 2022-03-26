@@ -121,6 +121,7 @@
               file-count 0
               byte-count 0]
          ;(su/dbg "got dirs: " dirs)
+         (dosync (alter collector-state assoc :total-bytes byte-count))
          (if-some [current-dir (first dirs)]
            (let [{:keys [parent-id
                          file-dir]}   current-dir
@@ -177,6 +178,7 @@
      (when-not (nil? (:backup-paths @collector-state))
        (dosync (alter collector-state assoc :backup-paths nil)))
 
+     (dosync (alter collector-state update-in [:backup-count] inc))
      (try
        (let [backup-info (db/start-backup! backup-root-paths :adhoc)]
          (dosync (alter collector-state assoc :started true :backup-info backup-info))
