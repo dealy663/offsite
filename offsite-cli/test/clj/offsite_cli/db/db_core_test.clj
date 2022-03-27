@@ -12,7 +12,8 @@
             [offsite-cli.block-processor.bp-core :as bp]
             [offsite-cli.collector.col-core :as col]
             [clojure.core.async :as a]
-            [mount-up.core :as mu])
+            [mount-up.core :as mu]
+            [clojure.tools.logging :as log])
   (:import [java.io File]
            (org.slf4j LoggerFactory)
            (ch.qos.logback.classic Level)))
@@ -69,9 +70,6 @@
       (dbc/stop-backup! :halted)
       (let [start-resp     (dbc/start-backup! (:backup-paths backup-cfg) :adhoc)
             current-backup (dbc/get-last-backup!)]
-        ;(su/dbg "start resp:" start-resp)
-        ;(su/dbg "current backup:" current-backup)
-        ;(su/dbg "Full db: " (db/full-query))
         (is (= true (:tx-success? start-resp))
             "The start-backup function is expected to return true if there is no other backup in progress")
         (is (= (:backup-paths backup-cfg) (:backup-paths current-backup))
@@ -86,6 +84,7 @@
             "The :backup-id field of the current-backup doesn't match the one that was returned by start-backup")))
 
     (testing "Starting a backup while another is already in progress"
+      (log/warn "********** The following test will generated an expected error when trying to start a backup while another is already running. ************")
       (let [result (dbc/start-backup! (:backup-paths backup-cfg) :adhoc)]
         (is (= false (:tx-success? result))
             "The start-backup function should return false if another backup is already in progress")

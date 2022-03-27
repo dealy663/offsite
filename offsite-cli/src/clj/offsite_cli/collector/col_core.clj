@@ -22,6 +22,7 @@
                            :backup-paths []
                            :push-bytes   0}))
 
+(def events #{:col-progress :col-complete})
 (declare start stop get-backup-info)
 
 (mount/defstate collector-chans
@@ -130,12 +131,12 @@
                  ;_                  (su/dbg "created path block: " path-block)
                  tx-info             (db/add-path-block! path-block)
                  children            (into [] (.listFiles file-dir))
-                 _                   (su/dbg "got children: " children)
+                 ;_                   (su/dbg "got children: " children)
                  child-dirs          (->> children
                                        (filter #(and (.isDirectory %)
                                                     (included? (str (fs/canonicalize %)))))
                                        (mapv (fn [dir] {:parent-id (:xt/id path-block) :file-dir dir}))) ;; too lazy, these to filters should be in a single
-                 _  (su/dbg "got child-dirs: " child-dirs)
+                 ;_  (su/dbg "got child-dirs: " child-dirs)
                  child-files          (filter #(not (.isDirectory %)) children) ;; function
                  sum-files            (->> child-files
                                        (map #(.length %))
@@ -156,7 +157,7 @@
            (let [result {:dir-count  dir-count
                          :file-count  file-count
                          :byte-count byte-count}]
-             (ch/m-publish :col-progress (assoc result :cwd (fs/canonicalize root-file-dir)))
+             (ch/m-publish :col-finished (assoc result :cwd (fs/canonicalize root-file-dir)))
              result))))))
 
 (defn get-backup-info
@@ -203,7 +204,6 @@
        (let [backup-info (db/start-backup! backup-root-paths :adhoc)]
          (dosync (alter collector-state assoc :started true :backup-info backup-info))
          (doseq [path-def backup-root-paths]
-(su/dbg "got path-def: " path-def)
            (dosync (alter collector-state update-in [:backup-paths] conj path-def))
            (let [path-block (create-path-block (:path path-def))
                  root-path (:root-path path-block)]

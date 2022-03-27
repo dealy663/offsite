@@ -18,16 +18,14 @@
 (defn- with-components
   [components f]
   (apply mount/start components)
-  #_(new-channel! :onsite-block-chan bp/stop-key)
   (f)
-  (su/dbg "Tearing Down")
-  ;;(stop! :onsite-block-chan)
   (apply mount/stop components))
 
 (use-fixtures
   :once
   #(with-components [#'offsite-cli.config/env
                      #'offsite-cli.db.db-core/db-node*
+                     #'offsite-cli.init/backup-paths
                      #'offsite-cli.channels/channels] %))
 
 (def test-configs-dir "test/configurations")
@@ -201,17 +199,19 @@
     (is (nil? (included? ""))
         "An empty string should not be included as part of the backup effort")))
 
-
-
 (deftest start-test
-  (testing "collector start"
+  (testing "collector start test"
     (try
-      (let [paths  (:backup-paths (init/get-paths (str test-configs-dir "/backup-paths.edn")))
-            s      (ch/m-subscribe :col-msg)
-            result (col/start (:backup-paths @init/backup-paths))
-            d      (md/timeout! (ms/take! s) 2000 :timedout)]
-        (is (not (= :timedout @d))
+      (let [paths      (:backup-paths (init/get-paths (str test-configs-dir "/backup-paths.edn")))
+            s-msg      (ch/m-subscribe :col-msg)
+            s-complete (ch/m-subscribe :col-finished)
+            result     (col/start (:backup-paths @init/backup-paths))
+            d-msg      (md/timeout! (ms/take! s-msg) 2000 :timedout)
+            d-complete (md/timeout! (ms/take! s-complete) 2000 :timedout)]
+        (is (not (= :timedout @d-msg))
             "Start event not received within timeout period")
+        (is (not (= :timedout @d-complete))
+            "Start/collector complete message not received within timeout period")
         (doseq [path paths]
           (is (not (nil? (some #(= path %) (:backup-paths @col/collector-state))))
               (str "Path not found in collector-state - " path))))

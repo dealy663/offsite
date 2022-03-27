@@ -30,12 +30,12 @@
 (declare close-all-channels! m-drop-all-subscribers)
 (mount/defstate channels
   :start (do
-           (su/dbg "starting channels")
+           ;           (su/dbg "starting channels")
            (let [chs (ref empty-channels)]
              (dosync (alter chs assoc :bus (mb/event-bus)))
              chs))
   :stop (do
-          (su/dbg "closing channels")
+          ;          (su/dbg "closing channels")
           (m-drop-all-subscribers)
           #_(close-all-channels! channels)))
 
@@ -481,7 +481,7 @@
   Returns a deferred that will be realized when all subscribers have processed the event"
   [event-topic payload]
 
-  (su/dbg "m-publish event-topic: " event-topic " payload: " payload)
+  ;  (su/dbg "m-publish event-topic: " event-topic " payload: " payload)
   (mb/publish! (:bus @channels) event-topic payload))
 
 (defn m-close-all-subscribers
