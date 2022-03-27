@@ -32,11 +32,11 @@
 (defn- with-components
   [components f]
   (apply mount/start components)
-  (ch/new-channel! :onsite-block-chan bp/stop-key)
+  #_(ch/new-channel! :onsite-block-chan bp/stop-key)
   ;;(bp/start bp-start-test-impl)
   (f)
   ;(ch/stop-all-channels! ch/channels)
-  (ch/reset-channels!)
+  #_(ch/reset-channels!)
   (apply mount/stop components)
   #_(bp/stop bp-stop-test-impl))
 
@@ -49,7 +49,7 @@
 ;  (LoggerFactory/getLogger "xtdb.query")
 ;  (.setLevel (Level/valueOf "warn")))
 
-(defn simple-block-handler
+#_(defn simple-block-handler
   [done-chan]
 
   (fn [block]
@@ -57,11 +57,11 @@
       (su/dbg "Received block: " block))
     (a/>!! done-chan block)))
 
-(defn chan-start-test-impl
-  "Test implementation of start, can be overridden in test by passing customized body
+#_(defn chan-start-test-impl
+    [handler]
+    "Test implementation of start, can be overridden in test by passing customized body
 
-   Returns a function with the start logic"
-  [handler]
+     Returns a function with the start logic"
 
   (su/dbg "returning testing start logic fn, with handler: " handler)
   (fn []
@@ -70,7 +70,7 @@
     (bpon/onsite-block-listener handler)
     #_(offsite-block-listener)))
 
-(defn chan-stop-test-impl
+#_(defn chan-stop-test-impl
   "Test implementation of stop"
   []
 

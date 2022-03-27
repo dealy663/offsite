@@ -19,9 +19,9 @@
 (defn- with-components
   [components f]
   ;(apply mount/start components)
-  (new-channel! :onsite-block-chan bp/stop-key)
+  #_(new-channel! :onsite-block-chan bp/stop-key)
   (f)
-  (reset-channels!)
+  #_(reset-channels!)
   ;(apply mount/stop components)
   )
 
@@ -30,7 +30,7 @@
   #(with-components [#'offsite-cli.config/env
                      #_#'offsite-cli.db.db-core/db-node*] %))
 
-(deftest new-publisher!-test
+#_(deftest new-publisher!-test
   (testing "Create a new publisher on a channel"
     (let [pub (new-publisher! :onsite-block-chan :test-pub)]
       (is (some? pub)
@@ -284,7 +284,7 @@
     (a/close! <publish)
     ))
 
-(deftest stop-all-channels!-test
+#_(deftest stop-all-channels!-test
   (let [ch1 (ch/new-channel! :ch-1 :stop-ch {:timeout 2000})
         ch2 (ch/new-channel! :ch-2 :stop-ch {:timeout 2000})]
     (is (not (:closed (ch/get-channel-info :ch-1)))

@@ -132,7 +132,7 @@
        (println "OfBL: started loop thread for offsite-blocks")
        (while (:started @bpc/bp-state)
           (su/dbg "OfBL: waiting for next offsite block")
-          (when-let [offsite-block (a/<! (ch/get-ch :offsite-block-chan))]
+          #_(when-let [offsite-block (a/<! (ch/get-ch :offsite-block-chan))]
              (when-not (= bpc/stop-key offsite-block)
                 (offsite-block-handler-impl offsite-block))))))
 

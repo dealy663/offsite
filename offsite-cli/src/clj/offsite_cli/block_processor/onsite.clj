@@ -72,7 +72,7 @@
                           (process-child-file %)
                           (fn [file]
                              (when-some [ofs file]
-                                (ch/put! :offsite-block-chan ofs)))))))))
+                                #_(ch/put! :offsite-block-chan ofs)))))))))
 
 (defn process-file
    "Processes an onsite block which represents a file. The file can be read, disintegrated, encrypted
@@ -122,7 +122,7 @@
       (su/dbg "received block: " block)
       (->> block
            (process-block)
-           (ch/put! :offsite-block-chan))))
+           #_(ch/put! :offsite-block-chan))))
 
 (defn- path-block-handler
   "Overrideable logic for processing path-blocks that have been added to the DB for the current
@@ -141,7 +141,7 @@
             ;(ch/put! :offsite-block-chan)
             )))))
 
-(defn onsite-block-listener
+#_(defn onsite-block-listener
    "Starts a thread which listens to the ::onsite-block-chan for new blocks which need
     to be processed
 
@@ -163,9 +163,9 @@
                       (su/dbg "Took block off :onsite-block-chan, val: " block)
                       (block-handler block)
                       (recur (:started @bpc/bp-state) (= bpc/stop-key block))))))))
-    (su/dbg "OnBL: Closing ::onsite-block-chan.")
-    (ch/close! :onsite-block-chan)
-    (su/dbg "OnBL: block-processor stopped"))
+    (su/dbg "OnBL: block-processor stopped")
+    #_(ch/close! :onsite-block-chan)
+    (su/dbg "OnBL: Closing ::onsite-block-chan."))
 
    ([]
     ;;(onsite-block-listener onsite-block-handler)
@@ -202,7 +202,10 @@
    "Standard implementation of start, can be overridden in test by passing customized body"
    []
 
-  (let [onsite-ch (ch/new-channel! :onsite-block-chan bpc/stop-key)
+  (-> (:bus @ch/channels)
+      (mb/subscribe :root-path)
+      (root-path-monitor))
+  #_(let [onsite-ch (ch/new-channel! :onsite-block-chan bpc/stop-key)
         onsite-pub (ch/new-publisher! :onsite-block-chan :topic)
         offsite-ch (ch/new-channel! :offsite-block-chan bpc/stop-key)
         offsite-pub (ch/new-publisher! :offsite-block-chan :topic)]
@@ -232,7 +235,7 @@
    "Standard implementation of stop, can be overridden int est by passing customized body"
    []
 
-   (a/go
+   #_(a/go
       (a/>! (ch/get-ch :onsite-block-chan) bpc/stop-key)
       (a/>! (ch/get-ch :offsite-block-chan) bpc/stop-key)))
 

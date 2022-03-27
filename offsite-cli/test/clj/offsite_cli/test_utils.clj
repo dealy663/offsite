@@ -4,7 +4,9 @@
             [offsite-cli.system-utils :as su]
             [offsite-cli.collector.col-core :as col]
             [offsite-cli.init :as init]
-            [offsite-cli.db.db-core :as db]))
+            [offsite-cli.db.db-core :as db]
+            [offsite-cli.channels :as ch]
+            [manifold.bus :as mb]))
 
 (defn validate-ofs-block
   ""
@@ -24,11 +26,13 @@
 (defn start-collector
   []
 
-  (col/start (:backup-paths @init/backup-paths) #(su/dbg "progress: " %)))
+  (col/event-monitor (ch/m-subscribe :col-msg) #(su/dbg %1))
+  (col/start (:backup-paths @init/backup-paths)))
 
 (defn reset-db!
   []
 
   (col/stop)
+  (ch/m-drop-all-subscribers)
   (#'offsite-cli.db.db-core/evict-backup (:backup-id (db/get-last-backup!))))
 

@@ -9,21 +9,26 @@
             [mount.core :as mount]
             [babashka.fs :as fs]
             [offsite-cli.db.db-core :as db]
-            [offsite-cli.collector.col-core :as col]))
+            [offsite-cli.collector.col-core :as col]
+            [offsite-cli.channels :as ch]
+            [manifold.stream :as ms]
+            [manifold.deferred :as md]
+            [manifold.bus :as mb]))
 
 (defn- with-components
   [components f]
   (apply mount/start components)
-  (new-channel! :onsite-block-chan bp/stop-key)
+  #_(new-channel! :onsite-block-chan bp/stop-key)
   (f)
   (su/dbg "Tearing Down")
-  (stop! :onsite-block-chan)
+  ;;(stop! :onsite-block-chan)
   (apply mount/stop components))
 
 (use-fixtures
   :once
   #(with-components [#'offsite-cli.config/env
-                     #'offsite-cli.db.db-core/db-node*] %))
+                     #'offsite-cli.db.db-core/db-node*
+                     #'offsite-cli.channels/channels] %))
 
 (def test-configs-dir "test/configurations")
 (def backup-data-dir "test/backup-data")
@@ -197,3 +202,15 @@
         "An empty string should not be included as part of the backup effort")))
 
 
+
+(deftest start-test
+  (testing "collector start"
+    (init/get-paths (str test-configs-dir "/backup-paths.edn"))
+    (try
+      (let [s      (ch/m-subscribe :col-msg)
+            result (col/start (:backup-paths @init/backup-paths))
+            d      (md/timeout! (ms/take! s) 2000 :timedout)]
+        (is (not (= :timedout @d))
+            "Start event not received within timeout period")
+        #_(ms/close! s))
+      (finally (col/stop)))))

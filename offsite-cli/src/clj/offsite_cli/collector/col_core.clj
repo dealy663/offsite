@@ -9,7 +9,8 @@
             [offsite-cli.system-utils :as su]
             [clojure.string :as str]
             [babashka.fs :as fs]
-            [manifold.bus :as mb]))
+            [manifold.bus :as mb]
+            [manifold.stream :as ms]))
 
 (def stop-key :stop-collector)
 
@@ -140,12 +141,14 @@
                                        (map #(.length %))
                                        (reduce +))]
              (when (nil? parent-id)
-               (mb/publish! (:bus @ch/channels) :root-path path-block))
-             (when progress-callback
-               (progress-callback {:cwd        file-dir
-                                   :dir-count  dir-count
-                                   :file-count  file-count
-                                   :byte-count byte-count}))
+               (ch/m-publish :root-path path-block))
+             (let [col-progress {:cwd        file-dir
+                                 :dir-count  dir-count
+                                 :file-count  file-count
+                                 :byte-count byte-count}]
+               (ch/m-publish :col-progress col-progress)
+               #_(when progress-callback
+                 (progress-callback col-progress)))
              (recur (concat (rest dirs) child-dirs)
                     (inc dir-count)
                     (+ file-count (count child-files))
@@ -153,8 +156,7 @@
            (let [result {:dir-count  dir-count
                          :file-count  file-count
                          :byte-count byte-count}]
-             (when progress-callback
-               (progress-callback (assoc result :cwd (fs/canonicalize root-file-dir))))
+             (ch/m-publish :col-progress (assoc result :cwd (fs/canonicalize root-file-dir)))
              result))))))
 
 (defn get-backup-info
@@ -162,6 +164,23 @@
   []
 
   (:backup-info @collector-state))
+
+
+(defn event-monitor
+  "Handles collector events.
+
+   Params:
+   stream     A manifold stream that has subscribed to the event-bus for :root-path messages
+   handler-fn Function to handle the root-path msg"
+  ;([stream]
+  ; (col-event-monitor stream onsite-block-monitor))
+
+  [stream handler-fn]
+
+  (a/go-loop []
+    (when-let [deferred-event (ms/take! stream)]
+      (handler-fn @deferred-event)
+      (recur))))
 
 (defn start
   "Start process to wait for new paths from which to create onsite blocks.
@@ -173,8 +192,9 @@
    (start backup-root-paths nil))
 
   ([backup-root-paths progress-callback]
+   (su/dbg "Starting Collector started: " (:started @collector-state))
    (when-not (:started @collector-state)
-     (println "Starting Collector started: " (:started @collector-state))
+     (ch/m-publish :col-msg (str "Starting collector, root paths: " backup-root-paths))
      (when-not (nil? (:backup-paths @collector-state))
        (dosync (alter collector-state assoc :backup-paths nil)))
 
