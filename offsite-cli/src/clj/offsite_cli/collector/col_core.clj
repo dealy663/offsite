@@ -192,7 +192,7 @@
    (start backup-root-paths nil))
 
   ([backup-root-paths progress-callback]
-   (su/dbg "Starting Collector started: " (:started @collector-state))
+   #_(su/dbg "Starting Collector started: " (:started @collector-state))
    (when-not (:started @collector-state)
      (ch/m-publish :col-msg (str "Starting collector, root paths: " backup-root-paths))
      (when-not (nil? (:backup-paths @collector-state))
@@ -203,12 +203,10 @@
        (let [backup-info (db/start-backup! backup-root-paths :adhoc)]
          (dosync (alter collector-state assoc :started true :backup-info backup-info))
          (doseq [path-def backup-root-paths]
-           (su/dbg "got path-def: " path-def)
+(su/dbg "got path-def: " path-def)
            (dosync (alter collector-state update-in [:backup-paths] conj path-def))
            (let [path-block (create-path-block (:path path-def))
                  root-path (:root-path path-block)]
-             ;(db/add-path-block! path-block)
-             ;(mb/publish! (:bus @ch/channels) :root-path path-block)
              (recurse-paths! root-path progress-callback))))
        (catch Exception e
          (log/error "Collector stopped with exception: " (.getMessage e))

@@ -205,12 +205,14 @@
 
 (deftest start-test
   (testing "collector start"
-    (init/get-paths (str test-configs-dir "/backup-paths.edn"))
     (try
-      (let [s      (ch/m-subscribe :col-msg)
+      (let [paths  (:backup-paths (init/get-paths (str test-configs-dir "/backup-paths.edn")))
+            s      (ch/m-subscribe :col-msg)
             result (col/start (:backup-paths @init/backup-paths))
             d      (md/timeout! (ms/take! s) 2000 :timedout)]
         (is (not (= :timedout @d))
             "Start event not received within timeout period")
-        #_(ms/close! s))
+        (doseq [path paths]
+          (is (not (nil? (some #(= path %) (:backup-paths @col/collector-state))))
+              (str "Path not found in collector-state - " path))))
       (finally (col/stop)))))
