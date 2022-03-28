@@ -5,6 +5,7 @@
             [offsite-cli.collector.col-core :as col]
             [offsite-cli.init :as init]
             [offsite-cli.db.db-core :as db]
+            [offsite-cli.db.dev-test]
             [offsite-cli.channels :as ch]
             [manifold.bus :as mb]))
 
