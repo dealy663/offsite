@@ -19,14 +19,6 @@
 (defn stop-db! [node]
   (.close node))
 
-(defn- full-query!
-  "Queries the whole DB and will bring it all into memory, this should only be used during testing"
-  []
-  (xt/q
-    (xt/db db-node*)
-    '{:find [(pull e [*])]
-      :where [[e :xt/id id]]}))
-
 (defn get-entity!
   "Fetch a full entity doc from XTDB by its ID
 
@@ -169,18 +161,6 @@
   ([xt-id sort-order options]
    (xt/entity-history (xt/db db-node*) xt-id sort-order options)))
 
-(defn- get-orphaned-blocks
-  "Returns a sequence of IDs of all blocks that don't have a valid backup-id. For now this only
-   returns blocks with a nil backup-id, this should be smart enough to query for the
-   existence of a supplied backup-id. Not sure if it should check on the parent-id."
-  []
-
-  (let [orphan-block-ids (xt/q
-                          (xt/db db-node*)
-                            '{:find   [e]
-                              :where [[e :backup-id nil]]})]
-    orphan-block-ids))
-
 (defn get-entity-tx-time
   "Return the tx-instance(s) indicated by the selector.
 
@@ -221,55 +201,6 @@
                    (mapv #(let [tx-time (get-entity-tx-time (first %) inst-opts)]
                             (f tx-time %)) coll)))))
 
-(defn- delete-entities
-  "A sequence of xt/id values for the entities to be deleted.
-
-   Params:
-   inst-opts   #{:eldest :newest :all}  (required) - one keyword from this set indicating which #inst to delete
-               #{:delete :evict}        (required) - one keyword indicating to delete or evict
-   id-seq      The IDs of the entities to be deleted (a seq of vectors containing xt/id values
-   sync?       (optional - default = true) Wait for DB transaction fo finishe before return"
-  ([inst-opts id-seq]
-   (delete-entities inst-opts id-seq true))
-
-  ([inst-opts id-seq sync?]
-   (xt/submit-tx db-node*
-                 (mapv #(let [tx-time (get-entity-tx-time (first %) inst-opts)]
-                          (println "got tx-time " tx-time)
-                          (-> (concat [::xt/delete] %)
-                              (concat tx-time)
-                              vec)) id-seq))
-   (when sync?
-     (xt/sync db-node*))))
-
-(defn- evict-entities
-  "Event multiple entities from XTDB
-
-   Params:
-   id-seq      The xt/IDs of the entities to be deleted (a seq of vectors containing xt/id values)
-   inst-opts   #{:eldest :newest :all}  one keyword from this set indicating which #inst to delete
-   sync?       (optional - default true) If true does a sync operation before returning"
-  ([id-seq inst-opts]
-   (evict-entities id-seq inst-opts true))
-
-  ([id-seq inst-opts sync?]
-   (log/warn "Evicting the following entities: " id-seq)
-   (let [f (fn []
-             (xt/submit-tx db-node*
-                           (mapv #(let [tx-time (get-entity-tx-time (first %) inst-opts)]
-                                    (-> (concat [::xt/evict] %)
-                                        (concat tx-time)
-                                        vec)) id-seq)))]
-     (if sync?
-       (xt/await-tx db-node* (f))
-       (f)))))
-
-(defn- evict-ents
-  [inst-opts id-seq]
-
-  (traverse-entities (fn [tx-time xt-id]
-                       (into (concat [::xt/evict xt-id]) tx-time)) id-seq))
-
 (defn get-all-path-blocks
   "Retrieves a group of path-blocks
 
@@ -293,7 +224,7 @@
   ([backup-id]
    (get-all-path-blocks backup-id 1)))
 
-(defn list-all-path-ids
+(defn list-backup-path-ids
   "Generate a sequence of path-block IDs belonging to a backup
 
   Params:
@@ -310,40 +241,14 @@
                 [e :data-type :path-block]]
         :in    [bid]} uuid)))
 
-(defn- delete-backup
-  "Deletes all backup entities: path-blocks and the backup entity itself
+(defn list-all-path-ids
+  "Returns a sequence of all path-block IDs in the DB"
+  []
 
-   Params:
-   backup-id     The :xt/id of the backup
-
-   Returns a sequence of all entities that were deleted"
-  [backup-id]
-
-  (let [all-path-ids (concat (list-all-path-ids backup-id) [backup-id])]
-    (delete-entities all-path-ids :all)
-    all-path-ids))
-
-;(defn backup-xf
-;  "Transform a backup's data"
-;  [f id-coll]
-;
-;  (fn [backup-id]
-;    (let [ids (into id-coll [[(su/offsite-id)]])]
-;      )))
-;
-(defn- evict-backup
-  "Evicts all backup entities: path-blocks and the backup entity itself. This function will first call
-   delete-backup.
-
-   Params:
-   backup-id     The :xt/id of the backup"
-  [backup-id]
-
-  (let [evict-ids (list-all-path-ids backup-id)
-        evict-ids (if (empty? evict-ids)
-                    [[(su/offsite-id)]]                     ;; this needs to be a seq of xt/id vectors
-                    (concat evict-ids [[(su/offsite-id)]]))]
-    (evict-entities evict-ids :all)))
+  (xt/q
+    (xt/db db-node*)
+    '{:find [e]
+      :where [[e :data-type :path-block]]}))
 
 (defn get-path-blocks-lazy
   "Creates a cursor like lazy seq for a backup's path-blocks. When processing from this seq

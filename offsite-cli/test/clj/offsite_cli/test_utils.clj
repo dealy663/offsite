@@ -33,6 +33,6 @@
   []
 
   (col/stop)
-  (ch/m-drop-all-subscribers)
-  (#'offsite-cli.db.db-core/evict-backup (:backup-id (db/get-last-backup!))))
+  ;  (ch/m-drop-all-subscribers)
+  (#'offsite-cli.db.dev-test/evict-backup (:backup-id (db/get-last-backup!))))
 
