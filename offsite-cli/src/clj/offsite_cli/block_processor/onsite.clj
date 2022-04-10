@@ -5,18 +5,19 @@
      :doc          "block processor onsite functions"
      :no-doc       true
      :project      "offsite"}
-   (:require [offsite-cli.system-utils :as su]
-             [clojure.core.async :as a]
-             [clojure.tools.logging :as log]
-             [offsite-cli.channels :as ch]
-             [offsite-cli.block-processor.bp-core :as bpc]
-             [offsite-cli.block-processor.offsite :as bpof]
-             [offsite-cli.collector.col-core :as col]
-             [offsite-cli.db.db-core :as db]
-             [manifold.bus :as mb]
-             [manifold.stream :as ms]
-             [manifold.deferred :as md]
-             [mount.core :as mount]))
+  (:require [offsite-cli.system-utils :as su]
+            [clojure.core.async :as a]
+            [clojure.tools.logging :as log]
+            [offsite-cli.channels :as ch]
+            [offsite-cli.block-processor.bp-core :as bpc]
+            [offsite-cli.block-processor.offsite :as bpof]
+            [offsite-cli.collector.col-core :as col]
+            [offsite-cli.db.db-core :as db]
+            [manifold.bus :as mb]
+            [manifold.stream :as ms]
+            [manifold.deferred :as md]
+            [mount.core :as mount]
+            [offsite-cli.db.catalog :as dbc]))
 
 (declare start stop)
 (mount/defstate onsite-bp-state
@@ -133,7 +134,7 @@
 
   ([_]
 
-   (with-open [path-seq-itr (db/get-path-blocks-lazy (:backup-id col/get-backup-info))]
+   (with-open [path-seq-itr (dbc/get-path-blocks-lazy (:backup-id col/get-backup-info))]
      (doseq [path-block (iterator-seq path-seq-itr)]
        (su/dbg "received block: " path-block)
        (->> path-block

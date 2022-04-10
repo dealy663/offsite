@@ -1,10 +1,17 @@
 ;; A list of paths to be backed up by Offsite
 ;; A path can include vector of files or directories to be included
-;; TODO: Figure out some intelligent way to include regexes or globstrs for the excludes
+;;
+;; Wildcard matching is available with either glob or regex.
+;;   "glob:**.DS_Store"     - will match .DS_Store under any directory
+;;   "regex:.*/.DS_Store"   - will also match .DS_Store under any directory
+;;
+;; To match a directory with a string be sure to include the trailing slash
+;;  :exclusions ["/Users/john/temp/"]       - will exclude the temp dir in  John's home dir
 
-[{:path "test/backup-data/active/du.out"}
- {:path "test/backup-data/active/music"
-  :exclusions ["medium" "large"]}
- {:path "test/backup-data/active/photos"
-  :exclusions ["DSC_0011.JPG" "DSC_0012.JPG" "DSC_0014.JPG" "DSC_0014.JPG" "DSC_0015.JPG" "DSC_0016.JPG" "DSC_0017.JPG"
-               "DSC_0018.JPG" "DSC_0019.JPG" "DSC_0020.JPG" "DSC_0021.JPG" "DSC_0022.JPG" "DSC_0023.JPG" "DSC_002.JPG"]}]
+{:globals {:exclusions  ["glob:*.DS_Store" "regex:.*/.DS_Store"]}
+ :paths   [{:path       "test/backup-data/active/du.out"}
+           {:path       "test/backup-data/active/music"
+            :exclusions ["medium/" "large/"]}
+           {:path       "test/backup-data/active/photos"
+            :exclusions ["DSC_0011.JPG" "DSC_0012.JPG" "DSC_0014.JPG" "DSC_0014.JPG" "DSC_0015.JPG" "DSC_0016.JPG" "DSC_0017.JPG"
+                         "DSC_0018.JPG" "DSC_0019.JPG" "DSC_0020.JPG" "DSC_0021.JPG" "DSC_0022.JPG" "DSC_0023.JPG" "DSC_002.JPG"]}]}

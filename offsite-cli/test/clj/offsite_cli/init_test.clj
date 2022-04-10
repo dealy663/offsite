@@ -3,10 +3,21 @@
             [offsite-cli.init :refer :all]
             [clojure.java.io :as io]
             [babashka.fs :as fs]
-            [offsite-cli.system-utils :as su]))
+            [offsite-cli.system-utils :as su])
+  (:import  (java.util.regex Pattern)))
 
 (def test-configs-dir "test/configurations")
 (def test-backup-data "test/backup-data")
+
+(defn regex-eq?
+  "Returns true if the regex patterns are equivalent
+
+  Params:
+  regex-l
+  regex-r"
+  [regex-l regex-r]
+
+  (= (.pattern regex-l) (.pattern regex-r)))
 
 (deftest test-init
   (testing "Found default backup-paths"
@@ -33,7 +44,8 @@
           "There should be no exclusions for short-backup-paths.edn"))
     (let [backup-cfg     (get-paths (str test-configs-dir "/backup-paths.edn"))
           exclusions     (:exclusions @su/paths-config)
-          file-exclusions (mapcat #(:exclusions %) (:backup-paths backup-cfg))]
+          file-exclusions (into (:global-exclusions backup-cfg)
+                               (mapcat #(:exclusions %) (:backup-paths backup-cfg)))]
       (is (some? exclusions)
           "The backup-paths.edn file should have several exclusions")
       (is (= (count file-exclusions) (count exclusions))
@@ -42,12 +54,12 @@
 (deftest build-exclusions-test
   (testing "the building of relative exclude paths"
     (let [backup-root {:path (str test-backup-data "/music") :exclusions ["small" "medium"]}
-          exc1        (->> "music/small" (fs/file test-backup-data) fs/canonicalize str)
-          exc2        (->> "music/medium" (fs/file test-backup-data) fs/canonicalize str)
+          exc1        (->> "music/small" (fs/file test-backup-data) fs/canonicalize str Pattern/compile)
+          exc2        (->> "music/medium" (fs/file test-backup-data) fs/canonicalize str Pattern/compile)
           exclusions  (build-exclusions backup-root)]
-      (is (= exc1 (some #{exc1} exclusions))
+      (is (some #(regex-eq? exc1 %) exclusions)
           (str "The exclusion vector: " exclusions " is missing: " exc1))
-      (is (= exc2 (some #{exc2} exclusions))
+      (is (some #(regex-eq? exc2 %) exclusions)
           (str "The exclusion vector: " exclusions " is missing: " exc2))))
 
   (testing "negative tests for building the relative exclude paths"
@@ -59,7 +71,7 @@
           excl-no-str  (build-exclusions backup-root)
           backup-root  {:path (str test-backup-data "/music") :exclusions ["" "small2" " \t"]}
           excl-small2  (build-exclusions backup-root)
-          small-dir    (->> "music/small2" (fs/file test-backup-data) fs/canonicalize str)]
+          small-dir    (->> "music/small2" (fs/file test-backup-data) fs/canonicalize str Pattern/compile)]
       (is (nil? excl-none)
           "nil should be returned when there are no exclusions")
       (is (nil? excl-empty)
@@ -67,14 +79,14 @@
       (is (nil? excl-no-str)
           "nil should be returned when there are no exclusions")
       (is (= 1 (count excl-small2))          "There should should be only one exclusion and the empty string should be ignored")
-      (is (= small-dir (some #{small-dir} excl-small2))
+      (is (some #(regex-eq? small-dir %) excl-small2)
           (str "The exclusion vector: " excl-small2 " is missing: " excl-small2))))
 
   (testing "Fully qualified exclude paths"
     (let [music-dir    (fs/file test-backup-data "music")
           music-path   (fs/canonicalize music-dir)
-          path-medium  (str music-path "/medium")
-          path-small   (str music-path "/small")
+          path-medium  (Pattern/compile (str music-path "/medium"))
+          path-small   (Pattern/compile (str music-path "/small"))
           backup-root  {:path (str (fs/path music-dir)) :exclusions [path-medium path-small]}
           exclusions   (build-exclusions backup-root)]
       (is (= 2 (count exclusions))

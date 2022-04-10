@@ -4,6 +4,7 @@
             [offsite-cli.channels :refer :all]
             [mount.core :as mount]
             [offsite-cli.db.db-core :as db]
+            [offsite-cli.db.catalog :as dbc]
             [offsite-cli.channels :as ch]
             [clojure.tools.logging :as log]
             [offsite-cli.system-utils :as su]
@@ -36,14 +37,14 @@
   "Create a backup block
 
   params:
-  file-dir       A backup path
-  parent-block  (optional - default nil) The ID of the ons parent block
+  file-dir          A backup path
+  parent-block-id  (optional - default nil) The ID of the ons parent block
 
   returns:     A backup block"
   ([file-dir]
    (create-path-block file-dir nil))
 
-  ([file-dir parent-block]
+  ([file-dir parent-block-id]
    (let [file-dir-path (if (string? file-dir) (io/file file-dir) file-dir)]
      {:xt/id     (.hashCode file-dir-path)
       :root-path (.getCanonicalPath file-dir-path)
@@ -51,7 +52,7 @@
       :data-type :path-block
       :backup-id (:backup-id (get-backup-info))
       ;:file-dir
-      :parent-id (if (some? parent-block) parent-block)
+      :parent-id (if (some? parent-block-id) parent-block-id)
       :size      (if (.isDirectory file-dir-path) 0 (.length file-dir-path))})))
 
 ;(defn start [backup-paths]
@@ -77,25 +78,14 @@
    the file/dir path is fully qualified from the root of the filesystem.
 
    Params:
-   file-dir-str
+   file-dir
 
    Returns true if the file/dir path is not in the exclusion list"
-  [file-dir-str]
+  [file-dir]
 
-  ;; logic will need to be smart enough to figure out relative exclusion paths and
-  ;; wildcard designators
-  ;;
-  ;; babashka/fs has some globbing facilities that will need to be explored
-  ;;
-  ;; always returns true for now
-
-  (when-not (str/blank? file-dir-str)
+  (when file-dir
     (let [exclusions (:exclusions @su/paths-config)
-          excl-match (or
-                       (some #{file-dir-str} exclusions)
-                       (some #(do
-                                ;(su/dbg "comparing excl: " % " with file-dir-path: " file-dir-path)
-                                (str/starts-with? file-dir-str %)) exclusions))]
+          excl-match (some #(% file-dir) exclusions)]
       (not excl-match))))
 
 ;; this function should be refactored into something smaller I think
@@ -116,20 +106,24 @@
      (recurse-paths! root-dir nil))
 
     ([root-dir progress-callback]
-     (let [root-file-dir (if (string? root-dir) (io/file root-dir) root-dir)]
+     (let [root-file-dir (if (string? root-dir) (io/file root-dir) root-dir)
+           dc           (if (.isDirectory root-file-dir) 1 0)
+           fc           (if (= 0 dc) 1 0)
+           bc           (if (= 1 fc) (.length root-dir))]
        (loop [dirs [{:parent-id nil
                      :file-dir  root-file-dir}]
-              dir-count 0
-              file-count 0
-              byte-count 0]
+              dir-count  dc
+              file-count  fc
+              byte-count bc]
          ;(su/dbg "got dirs: " dirs)
          (dosync (alter collector-state assoc :total-bytes byte-count))
          (if-some [current-dir (first dirs)]
            (let [{:keys [parent-id
                          file-dir]}   current-dir
+                 file-or-dir          (if (.isDirectory file-dir) :dir :file)
                  path-block          (create-path-block file-dir parent-id)
                  ;_                  (su/dbg "created path block: " path-block)
-                 tx-info             (db/add-path-block! path-block)
+                 tx-info             (dbc/add-path-block! path-block)
                  children            (into [] (.listFiles file-dir))
                  ;_                   (su/dbg "got children: " children)
                  child-dirs          (->> children
@@ -137,7 +131,8 @@
                                                     (included? (str (fs/canonicalize %)))))
                                        (mapv (fn [dir] {:parent-id (:xt/id path-block) :file-dir dir}))) ;; too lazy, these to filters should be in a single
                  ;_  (su/dbg "got child-dirs: " child-dirs)
-                 child-files          (filter #(not (.isDirectory %)) children) ;; function
+                 child-files          (filter #(and (included? (str (fs/canonicalize %)))
+                                                  (not (.isDirectory %))) children) ;; function
                  sum-files            (->> child-files
                                        (map #(.length %))
                                        (reduce +))]
@@ -147,18 +142,80 @@
                                  :dir-count  dir-count
                                  :file-count  file-count
                                  :byte-count byte-count}]
-               (ch/m-publish :col-progress col-progress)
-               #_(when progress-callback
-                 (progress-callback col-progress)))
+               (ch/m-publish :col-progress col-progress))
+             (dosync (alter collector-state update :total-bytes + byte-count))
              (recur (concat (rest dirs) child-dirs)
-                    (inc dir-count)
+                    (if (= :dir file-or-dir) (inc dir-count))
                     (+ file-count (count child-files))
                     (+ byte-count sum-files)))
            (let [result {:dir-count  dir-count
                          :file-count  file-count
                          :byte-count byte-count}]
-             (ch/m-publish :col-finished (assoc result :cwd (fs/canonicalize root-file-dir)))
+             (ch/m-publish :col-root-path-cataloged (assoc result :cwd (fs/canonicalize root-file-dir)))
              result))))))
+
+
+(defn- pre-visit-dir-fn
+  [dir-info-atom]
+
+  (fn [dir attrs]
+    (su/dbg "pre-visit-dir got dir: " dir)
+    (let [dir-file   (.toFile dir)
+          ;dir-path  (-> dir .toFile .getCanonicalPath)
+          parent-id (-> @dir-info-atom :parent-ids first)]
+      (if (included? (str dir))
+        (let [path-block (create-path-block dir-file parent-id)]
+          (dbc/add-path-block! path-block)
+          (swap! dir-info-atom update :parent-ids conj (:xt/id path-block))
+          (swap! dir-info-atom update :dir-count inc)
+          (when (nil? parent-id)
+            (ch/m-publish :root-path path-block))
+          (ch/m-publish :col-progress (dissoc @dir-info-atom :parent-ids))
+          :continue)
+        :skip-subtree))))
+
+(defn- post-visit-dir-fn
+  [dir-info-atom]
+
+  (fn [_ exp]
+    (if (nil? exp)
+      (do
+        (swap! dir-info-atom update :parent-ids rest)
+        :continue)
+      (throw exp))))
+
+(defn- visit-file-fn
+  [dir-info-atom]
+
+  (fn [path attrs]
+    (su/dbg "vist-file got path: " path)
+    (let [file (.toFile path)
+          file-path (.getCanonicalPath file)]
+      (if (included? file-path)
+        (let [path-block (create-path-block file (-> @dir-info-atom :parent-ids first))]
+          (dbc/add-path-block! path-block)
+          (swap! dir-info-atom update :byte-count + (fs/size file))
+          (swap! dir-info-atom update :file-count inc)
+          :continue)
+        :skip-subtree))))
+
+(defn walk-paths
+  "Go through all of the paths defined as part of this backup and build a catalog in the DB, while making sure to
+  obey the exclusion rules that have been defined in the backup config EDN file.
+
+  Params:
+  root-dir         The root path to directory or maybe just a file to be backed up.
+
+  Returns a map of backup info with the number of files, directories an bytes that will make up the backup."
+  [root-dir]
+
+  (let [root-file-dir   (if (string? root-dir) (fs/file root-dir) root-dir)
+        path-info-atom (atom {:parent-ids '() :file-count 0 :dir-count 0 :byte-count 0})
+        pre-visit-dir  (pre-visit-dir-fn path-info-atom)
+        post-visit-dir (post-visit-dir-fn path-info-atom)
+        visit-file      (visit-file-fn path-info-atom)]
+    (fs/walk-file-tree root-file-dir {:pre-visit-dir pre-visit-dir :post-visit-dir post-visit-dir :visit-file visit-file})
+    @path-info-atom))
 
 (defn get-backup-info
   "Returns map of details regarding this backup"
@@ -203,11 +260,23 @@
      (try
        (let [backup-info (db/start-backup! backup-root-paths :adhoc)]
          (dosync (alter collector-state assoc :started true :backup-info backup-info))
-         (doseq [path-def backup-root-paths]
-           (dosync (alter collector-state update-in [:backup-paths] conj path-def))
-           (let [path-block (create-path-block (:path path-def))
-                 root-path (:root-path path-block)]
-             (recurse-paths! root-path progress-callback))))
+         (loop [root-paths backup-root-paths
+                acc {:dir-count   0
+                     :file-count   0
+                     :byte-count  0}]
+           (if-let [path-def (first root-paths)]
+             (do
+               (dosync (alter collector-state update-in [:backup-paths] conj path-def))
+               (let [path-block (create-path-block (:path path-def))
+                     root-path (:root-path path-block)
+                     {:keys [dir-count file-count byte-count :as result]} (recurse-paths! root-path progress-callback)]
+(su/dbg "path: " root-path " dir-count: " dir-count " file-count: " file-count " byte-count: " byte-count)
+                 (recur (rest root-paths)
+                        (assoc acc :dir-count  (+ dir-count  (:dir-count acc))
+                                   :file-count  (+ file-count  (:file-count acc))
+                                   :byte-count (+ byte-count (:byte-count acc))))))
+             (ch/m-publish :col-finished acc)))
+         (dbc/catalog-complete! (:backup-id backup-info)))
        (catch Exception e
          (log/error "Collector stopped with exception: " (.getMessage e))
          (.printStackTrace e))))))

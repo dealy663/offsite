@@ -9,6 +9,7 @@
             [mount.core :as mount]
             [babashka.fs :as fs]
             [offsite-cli.db.db-core :as db]
+            [offsite-cli.db.catalog :as dbc]
             [offsite-cli.collector.col-core :as col]
             [offsite-cli.channels :as ch]
             [manifold.stream :as ms]
@@ -123,11 +124,45 @@
 
   (let [file      (.toFile path)
         file-path (.getCanonicalPath file)]
-    (when (included? file-path)
-      ;(su/dbg "visiting file: " path)
-      (swap! dir-info update :byte-count + (fs/size file))
-      (swap! dir-info update :file-count inc)
-      :continue)))
+    (if (included? file-path)
+      (do
+        ;(su/dbg "visiting file: " path)
+        (swap! dir-info update :byte-count + (fs/size file))
+        (swap! dir-info update :file-count inc)
+        :continue)
+      :skip-subtree)))
+
+(defn- pre-visit-dir-fn
+  [dir-info-atom]
+
+  (fn [dir attrs]
+    (let [dir-path (-> dir .toFile .getCanonicalPath)]
+      (if (included? dir-path)
+        (do
+          ;(su/dbg "pre-visiting dir: " dir ", dir-info: " @dir-info)
+          ;; The root directory isn't stored in the DB so don't look for it, but it should still
+          ;; be added to the dir-count
+          (when (> (:dir-count @dir-info-atom) 0)
+            (is (some #(= (str dir-path) (-> % first :root-path)) (:all-path-blocks @dir-info-atom))
+                (str "The path blocks fetched from DB don't contain path: " dir-path)))
+          (swap! dir-info-atom update :dir-count inc)
+          :continue)
+        :skip-subtree))))
+
+(defn- visit-file-fn
+  [dir-info-atom]
+
+  (fn [path attrs]
+    (let [file (.toFile path)
+          file-path (.getCanonicalPath file)]
+      (if (included? file-path)
+        (do
+          (su/dbg "visiting file: " file-path)
+          ;(su/dbg "visiting file: " path)
+          (swap! dir-info-atom update :byte-count + (fs/size file))
+          (swap! dir-info-atom update :file-count inc)
+          :continue)
+        :skip-subtree))))
 
 (defn fs-get-info-test
   "Returns the number of directories, files and total bytes pointed to by the path. This function does no
@@ -138,11 +173,26 @@
   [path]
 
   (reset! dir-info (assoc dir-info-empty :root            path
-                                         :all-path-blocks (db/get-all-path-blocks (:backup-id col/get-backup-info) -1)))
+                                         :all-path-blocks (dbc/get-all-path-blocks (:backup-id col/get-backup-info) -1)))
   #_(su/dbg "got all-path-blocks: " (:all-path-blocks @dir-info))
   (let [file-dir (if (string? path) (fs/file path) path)]
     (fs/walk-file-tree file-dir {:pre-visit-dir pre-visit-dir :visit-file visit-file})
     @dir-info))
+
+(defn fs-get-root-path-info
+  "Returns the number of directories, files and total bytes pointed to by the path. This function does no
+  optimizations to avoid blowing the stack. It could have issues on deeply nested file systems
+
+  Params:
+  root-path     The root path to walk and get info from"
+  [root-path]
+
+  (let [dir-info (atom (assoc dir-info-empty :root            root-path
+                                             :all-path-blocks (dbc/get-all-path-blocks (:backup-id col/get-backup-info) -1)))]
+    (let [file-dir (if (string? root-path) (fs/file root-path) root-path)]
+      (fs/walk-file-tree file-dir {:pre-visit-dir (pre-visit-dir-fn dir-info)
+                                 :visit-file (visit-file-fn dir-info)})
+      @dir-info)))
 
 (deftest recurse-paths!-test
   (let [backup-cfg         (init/get-paths (str test-configs-dir "/backup-paths.edn"))
@@ -199,6 +249,12 @@
     (is (nil? (included? ""))
         "An empty string should not be included as part of the backup effort")))
 
+(defn sum-fs-info
+  "Sum the file system info for the root paths"
+  [fs-paths]
+
+  (into {} (map (fn [k] {k (reduce + (mapv k fs-paths))}) [:dir-count :file-count :byte-count])))
+
 (deftest start-test
   (testing "collector start test"
     (try
@@ -207,12 +263,28 @@
             s-complete (ch/m-subscribe :col-finished)
             result     (col/start (:backup-paths @init/backup-paths))
             d-msg      (md/timeout! (ms/take! s-msg) 2000 :timedout)
-            d-complete (md/timeout! (ms/take! s-complete) 2000 :timedout)]
+            d-complete (md/timeout! (ms/take! s-complete) 2000 :timedout)
+            _ (su/dbg "got paths: " paths)
+            _ (su/dbg "got path-blocks: " (dbc/get-all-path-blocks (:backup-id db/get-last-backup!) -1))
+            fs-info    (->> paths
+                            (map #(fs-get-root-path-info (:path %)))
+                            sum-fs-info)]
         (is (not (= :timedout @d-msg))
             "Start event not received within timeout period")
         (is (not (= :timedout @d-complete))
             "Start/collector complete message not received within timeout period")
         (doseq [path paths]
           (is (not (nil? (some #(= path %) (:backup-paths @col/collector-state))))
-              (str "Path not found in collector-state - " path))))
+              (str "Path not found in collector-state - " path)))
+        (let [last-backup (db/get-last-backup!)]
+          (is (= :complete (:catalog-state last-backup))
+              "The collector should indicate that the catalog is complete after processing all backup paths")
+          (is (= (:dir-count fs-info) (:dir-count @d-complete))
+              "The file system dir count doesn't match the DB dir count")
+          (is (= (:file-count fs-info) (:file-count @d-complete))
+              "The file system file count doesn't match the DB file count")
+          (is (= (:byte-count fs-info) (:byte-count @d-complete))
+              "The file system byte count doesn't match the DB byte count")
+          (is (= (:byte-count fs-info) (:total-bytes @col/collector-state))
+              "The collector-state byte count doesn't match the file system byte count")))
       (finally (col/stop)))))

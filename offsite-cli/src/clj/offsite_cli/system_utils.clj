@@ -18,6 +18,8 @@
 
 (def backup-close-states [:paused :completed :halted])
 
+(def regex-pattern-type (type #""))
+
 (defn hostname
    "Returns the name of the system that this Offsite Client is running on."
    []
@@ -82,3 +84,12 @@
    {:client-id   42
     :public-key  "invalid key"
     :quality     100})
+
+(defn regex?
+   "Returns true if the parameter is a regular expression pattern, otherwise returns false
+
+   Params:
+   pattern      The potential regular expression pattern"
+   [pattern]
+
+   (= regex-pattern-type (type pattern)))

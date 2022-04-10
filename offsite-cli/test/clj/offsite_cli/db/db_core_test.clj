@@ -1,14 +1,14 @@
 (ns offsite-cli.db.db-core-test
   (:require [clojure.test :refer :all]
             [clojure.java.io :as io]
-            [offsite-cli.db.db-core :refer [db-node*] :as dbc]
+            [offsite-cli.db.db-core :refer [db-node*] :as db]
             [offsite-cli.init :as init]
             [xtdb.api :as xt]
             [mount.core :as mount]
             [offsite-cli.test-utils :as tu]
             [offsite-cli.system-utils :as su]
             [offsite-cli.channels :as ch]
-            [offsite-cli.db.db-core :as db]
+            [offsite-cli.db.catalog :as dbc]
             [offsite-cli.block-processor.bp-core :as bp]
             [offsite-cli.collector.col-core :as col]
             [clojure.core.async :as a]
@@ -67,9 +67,9 @@
 (deftest backup
   (let [backup-cfg (init/get-paths (str test-configs-dir "/short-backup-paths.edn"))]
     (testing "starting a backup"
-      (dbc/stop-backup! :halted)
-      (let [start-resp     (dbc/start-backup! (:backup-paths backup-cfg) :adhoc)
-            current-backup (dbc/get-last-backup!)]
+      (db/stop-backup! :halted)
+      (let [start-resp     (db/start-backup! (:backup-paths backup-cfg) :adhoc)
+            current-backup (db/get-last-backup!)]
         (is (= true (:tx-success? start-resp))
             "The start-backup function is expected to return true if there is no other backup in progress")
         (is (= (:backup-paths backup-cfg) (:backup-paths current-backup))
@@ -85,11 +85,11 @@
 
     (testing "Starting a backup while another is already in progress"
       (log/warn "********** The following test will generated an expected error when trying to start a backup while another is already running. ************")
-      (let [result (dbc/start-backup! (:backup-paths backup-cfg) :adhoc)]
+      (let [result (db/start-backup! (:backup-paths backup-cfg) :adhoc)]
         (is (= false (:tx-success? result))
             "The start-backup function should return false if another backup is already in progress")
-        (dbc/stop-backup! :halted)
-        (let [last-backup (dbc/get-last-backup!)]
+        (db/stop-backup! :halted)
+        (let [last-backup (db/get-last-backup!)]
           (is (= :halted (:close-state last-backup))
               "A halted backup should have to :close-state that was supplied")
           (is (= false (:in-progress last-backup))
@@ -122,9 +122,9 @@
     (testing "Storing a path-block to the DB"
       (dosync (alter col/collector-state assoc :backup-info {:backup-id backup-id}))
       (let [music-dir-block (col/create-path-block (:path music-path))
-            tx-info         (db/add-path-block! music-dir-block)
+            tx-info         (dbc/add-path-block! music-dir-block)
             path-block      (-> backup-id
-                                (db/get-all-path-blocks)
+                                (dbc/get-all-path-blocks)
                                 first
                                 first)]
         (is (= (:xt/id music-dir-block) (:xt/id path-block))
@@ -135,8 +135,8 @@
             music-dir       (io/file (:orig-path music-dir-block))
             child-paths     (.listFiles music-dir)]
         (doseq [sub-dir child-paths]
-          (db/add-path-block! (col/create-path-block (.getPath sub-dir) music-dir-block)))
-        (with-open [child-path-blocks (db/get-path-blocks-lazy backup-id)]
+          (dbc/add-path-block! (col/create-path-block (.getPath sub-dir) music-dir-block)))
+        (with-open [child-path-blocks (dbc/get-path-blocks-lazy backup-id)]
           (doseq [path-block (iterator-seq  child-path-blocks)]
             ;(su/dbg "got child path blocks: " path-block)
             (when (= (:xt/id music-dir-block) (:parent-id path-block))

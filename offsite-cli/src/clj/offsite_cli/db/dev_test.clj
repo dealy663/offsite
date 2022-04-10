@@ -7,7 +7,8 @@
      :project        "offsite"}
   (:require
     [offsite-cli.system-utils :as su]
-    [offsite-cli.db.db-core :as dbc]
+    [offsite-cli.db.db-core :as db]
+    [offsite-cli.db.catalog :as dbc]
     [xtdb.api :as xt]
     [clojure.tools.logging :as log]))
 
@@ -15,7 +16,7 @@
   "Queries the whole DB and will bring it all into memory, this should only be used during testing"
   []
   (xt/q
-    (xt/db dbc/db-node*)
+    (xt/db db/db-node*)
     '{:find [(pull e [*])]
       :where [[e :xt/id id]]}))
 
@@ -26,7 +27,7 @@
   []
 
   (let [orphan-block-ids (xt/q
-                           (xt/db dbc/db-node*)
+                           (xt/db db/db-node*)
                            '{:find   [e]
                              :where [[e :backup-id nil]]})]
     orphan-block-ids))
@@ -44,14 +45,14 @@
    (delete-entities inst-opts id-seq true))
 
   ([inst-opts id-seq sync?]
-   (xt/submit-tx dbc/db-node*
-                 (mapv #(let [tx-time (dbc/get-entity-tx-time (first %) inst-opts)]
+   (xt/submit-tx db/db-node*
+                 (mapv #(let [tx-time (db/get-entity-tx-time (first %) inst-opts)]
                           (println "got tx-time " tx-time)
                           (-> (concat [::xt/delete] %)
                               (concat tx-time)
                               vec)) id-seq))
    (when sync?
-     (xt/sync dbc/db-node*))))
+     (xt/sync db/db-node*))))
 
 (defn- evict-entities
   "Event multiple entities from XTDB
@@ -66,19 +67,19 @@
   ([id-seq inst-opts sync?]
    (log/warn "Evicting the following entities: " id-seq)
    (let [f (fn []
-             (xt/submit-tx dbc/db-node*
-                           (mapv #(let [tx-time (dbc/get-entity-tx-time (first %) inst-opts)]
+             (xt/submit-tx db/db-node*
+                           (mapv #(let [tx-time (db/get-entity-tx-time (first %) inst-opts)]
                                     (-> (concat [::xt/evict] %)
                                         (concat tx-time)
                                         vec)) id-seq)))]
      (if sync?
-       (xt/await-tx dbc/db-node* (f))
+       (xt/await-tx db/db-node* (f))
        (f)))))
 
 (defn- evict-ents
   [inst-opts id-seq]
 
-  (dbc/traverse-entities (fn [tx-time xt-id]
+  (db/traverse-entities (fn [tx-time xt-id]
                        (into (concat [::xt/evict xt-id]) tx-time)) id-seq))
 
 (defn- delete-backup

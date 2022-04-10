@@ -52,6 +52,22 @@
       (log/warn "No previous backup document exists, this should only happen once after first install.")
       backup-doc)))
 
+(defn get-backup!
+  "Fetch the specified backup from the DB
+
+  Params:
+  backup-id    The ID of the backup"
+  [backup-id]
+
+  (let [backup-id (if (string? backup-id) (UUID/fromString backup-id) backup-id)
+        doc       (xt/q
+                    (xt/db db-node*)
+                    '{:find  [(pull e [*])]
+                      :where [[e :backup-id bk-id]
+                              [e :xt/id xt-id]]
+                      :in    [[bk-id xt-id]]} [backup-id (su/offsite-id)])]
+    (-> doc first first)))
+
 (defn start-backup!
   "Creates a new backup operation in the DB.
 
@@ -69,13 +85,14 @@
                              (su/offsite-id)
                              (assoc last-backup :in-progress false)]
         db-put              [[::xt/put
-                              {:xt/id        (su/offsite-id)
-                               :backup-id    current-backup-uuid
-                               :backup-type  backup-type
-                               :backup-paths backup-paths
-                               :in-progress  true
-                               :close-state  nil
-                               :onsite-paths []}]]
+                              {:xt/id          (su/offsite-id)
+                               :backup-id      current-backup-uuid
+                               :backup-type    backup-type
+                               :backup-paths   backup-paths
+                               :in-progress    true
+                               :catalog-state  :started
+                               :close-state    nil
+                               :onsite-paths   []}]]
         db-put (if-not (nil? last-backup)                   ;; If a backup record already exists
                  `[~matcher ~@db-put]                       ;; this is an interesting way to kinda cons on to the front of a vector and still maintain a vector
                  db-put)                                    ;; otherwise a standalone ::xt/put will do
@@ -112,16 +129,6 @@
           (log/error "An error has occurred when trying to close backup: " (:backup-id last-backup)))
         tx-inst))))
 
-(defn add-path-block!
-  "Add onsite path(s) to the actively running backup
-
-   Params:
-   onsite-block    A path to an onsite file-dir to be scheduled for backup
-
-   Returns an #inst of the DB TX"
-  [onsite-block]
-
-  (easy-ingest! [onsite-block]))
 
 (defn get-entity-tx
   "Returns transaction details for an entity
@@ -200,75 +207,6 @@
      (xt/submit-tx db-node*
                    (mapv #(let [tx-time (get-entity-tx-time (first %) inst-opts)]
                             (f tx-time %)) coll)))))
-
-(defn get-all-path-blocks
-  "Retrieves a group of path-blocks
-
-   Params:
-   backup-id   The ID of the backup in progress
-   count       (optional - default 1) The number of path-blocks to retrieve from DB,
-               a count of -1 will return all path blocks (be careful about memory usage)
-
-   Returns a lazy seq of path-blocks"
-  ([backup-id count]
-
-   (let [all-paths-set (xt/q
-                         (xt/db db-node*)
-                         '{:find  [(pull e [*])]
-                           :where [[e :backup-id backup-id]
-                                   [e :data-type :path-block]]})]
-     (if (> 0 count)
-       all-paths-set
-       (take count all-paths-set))))
-
-  ([backup-id]
-   (get-all-path-blocks backup-id 1)))
-
-(defn list-backup-path-ids
-  "Generate a sequence of path-block IDs belonging to a backup
-
-  Params:
-  backup-id        The :xt/id of the backup
-
-  Returns a sequence of :xt/id"
-  [backup-id]
-
-  (let [uuid (if (string? backup-id) (UUID/fromString backup-id) backup-id)]
-    (xt/q
-      (xt/db db-node*)
-      '{:find  [e]
-        :where [[e :backup-id bid]
-                [e :data-type :path-block]]
-        :in    [bid]} uuid)))
-
-(defn list-all-path-ids
-  "Returns a sequence of all path-block IDs in the DB"
-  []
-
-  (xt/q
-    (xt/db db-node*)
-    '{:find [e]
-      :where [[e :data-type :path-block]]}))
-
-(defn get-path-blocks-lazy
-  "Creates a cursor like lazy seq for a backup's path-blocks. When processing from this seq
-   the logic should probably be in a with-open expression to auto-close the iterator.
-
-   e.g. (with-open [path-seq (get-path-blocks-lazy backup-id)]
-          (doseq [path-block (iterator-seq path-seq)]
-            ;; process path into onsite-block
-            ...))
-
-   Params:
-   backup-id     The ID of the backup in progress
-
-   Returns a lazy iterator-seq of path-blocks"
-  ([backup-id]
-   (xt/open-q (xt/db db-node*)
-              '{:find  [(pull e [*])]
-                :where [[e :backup-id backup-id]
-                        [e :data-type :path-block]]
-                :in    [backup-id]} backup-id)))
 
 (defn get-ofs-block-state!
   "Retrieves the latest file state info from the DB
