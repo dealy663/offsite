@@ -206,30 +206,8 @@
             result         (col/walk-paths test-dir)
             sub-dirs       (->> test-dir fs/list-dir (filter #(fs/directory? %)))
             included-count (- (count sub-dirs) (count music-exclusions))]
-        (su/dbg "sub-dirs: " sub-dirs)
-        (su/dbg "result: " result)
         (is (some? result)
             "A valid result is expected after recurse-paths!")
-        (is (= (inc included-count) (:dir-count result))
-            "The number of directories processed should match the sub-dirs of music-block + 1
-             for the music-block root and taking away the count of excluded dirs")))))
-
-#_(deftest recurse-paths!-test
-  (let [backup-cfg         (init/get-paths (str test-configs-dir "/backup-paths.edn"))
-        music-root-path    (-> backup-cfg :backup-paths second)
-        music-path         (:path music-root-path)
-        music-exclusions   (:exclusions music-root-path)
-        music-block        (create-path-block (-> backup-cfg :backup-paths second :path))]
-    ;(su/dbg "got music-block: " music-block)
-    (testing "Creating a whole directory tree in the DB"
-      (let [orig-col-state @col/collector-state
-            result         (recurse-paths! music-path #_recurse-callback)
-            test-dir       (io/file (:orig-path music-block))
-            sub-dirs       (->> test-dir .listFiles (filter #(.isDirectory %)))
-            included-count (- (count sub-dirs) (count music-exclusions))]
-        (is (some? result)
-            "A valid result is expected after recurse-paths!")
-        ;; add 1 to account for the music dir itself
         (is (= (inc included-count) (:dir-count result))
             "The number of directories processed should match the sub-dirs of music-block + 1
              for the music-block root and taking away the count of excluded dirs")
@@ -241,9 +219,7 @@
           (is (= (:file-count fs-info) (:file-count result))
               "The file count on the file-system doesn't match that returned by recurse-paths!")
           (is (= (:byte-count fs-info) (:byte-count result))
-              "The total byte count on the file-system doesn't match that returned by recurse-paths!")
-          (is (= (:byte-count fs-info) (:total-bytes @col/collector-state))
-              "The number of bytes catalogued and stored in col/collector-state don't match the bytes on the file system."))))))
+              "The total byte count on the file-system doesn't match that returned by recurse-paths!"))))))
 
 (deftest included?-test
   (testing "included? function"
