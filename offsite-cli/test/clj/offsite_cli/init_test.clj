@@ -3,13 +3,16 @@
             [offsite-cli.init :refer :all]
             [clojure.java.io :as io]
             [babashka.fs :as fs]
-            [offsite-cli.system-utils :as su])
+            [offsite-cli.system-utils :as su]
+            [clojure.edn :as edn]
+            [offsite-cli.collector.col-core :as col]
+            [clojure.string :as str])
   (:import  (java.util.regex Pattern)))
 
 (def test-configs-dir "test/configurations")
 (def test-backup-data "test/backup-data")
 
-(defn regex-eq?
+#_(defn regex-eq?
   "Returns true if the regex patterns are equivalent
 
   Params:
@@ -33,18 +36,22 @@
     (let [paths       (get-paths (str test-configs-dir "/backup-paths.edn"))
           second-path (-> paths :backup-paths second)]
       (is (= "test/backup-data/music" (:path second-path)))
-      (let [excluded (:exclusions second-path)]
-        (is (vector? excluded))
-        (is (.contains excluded "medium")))))
+      (let [excluded (mapv #(str/replace-first % "!:" "") (:exclusions second-path))]
+        (is (vector? excluded)
+            (str "excluded: " excluded " is not a vector"))
+        (is (.contains excluded "medium/")
+            (str "excluded: " excluded " doesn't contain the dir: medium/")))))
 
   (testing "Backup path exclusions"
     (let [short-paths (get-paths (str test-configs-dir "/short-backup-paths.edn"))
           exclusions  (get-exclusions)]
       (is (nil? exclusions)
           "There should be no exclusions for short-backup-paths.edn"))
-    (let [backup-cfg     (get-paths (str test-configs-dir "/backup-paths.edn"))
+    (let [cfg-path       (str test-configs-dir "/backup-paths.edn")
+          raw-cfg        (edn/read-string (slurp cfg-path))
+          backup-cfg     (get-paths cfg-path)
           exclusions     (:exclusions @su/paths-config)
-          file-exclusions (into (:global-exclusions backup-cfg)
+          file-exclusions (into (get-in raw-cfg [:globals :exclusions])
                                (mapcat #(:exclusions %) (:backup-paths backup-cfg)))]
       (is (some? exclusions)
           "The backup-paths.edn file should have several exclusions")
@@ -52,7 +59,7 @@
           "The number of exclusions in backup-paths.edn should match the count returned from get-paths"))))
 
 (deftest build-exclusions-test
-  (testing "the building of relative exclude paths"
+  #_(testing "the building of relative exclude paths"
     (let [backup-root {:path (str test-backup-data "/music") :exclusions ["small" "medium"]}
           exc1        (->> "music/small" (fs/file test-backup-data) fs/canonicalize str Pattern/compile)
           exc2        (->> "music/medium" (fs/file test-backup-data) fs/canonicalize str Pattern/compile)
@@ -62,7 +69,7 @@
       (is (some #(regex-eq? exc2 %) exclusions)
           (str "The exclusion vector: " exclusions " is missing: " exc2))))
 
-  (testing "negative tests for building the relative exclude paths"
+  #_(testing "negative tests for building the relative exclude paths"
     (let [backup-root  {:path (str test-backup-data "/music")}
           excl-none    (build-exclusions backup-root)
           backup-root  {:path (str test-backup-data "/music") :exclusions []}
@@ -84,14 +91,14 @@
 
   (testing "Fully qualified exclude paths"
     (let [music-dir    (fs/file test-backup-data "music")
-          music-path   (fs/canonicalize music-dir)
-          path-medium  (Pattern/compile (str music-path "/medium"))
-          path-small   (Pattern/compile (str music-path "/small"))
-          backup-root  {:path (str (fs/path music-dir)) :exclusions [path-medium path-small]}
-          exclusions   (build-exclusions backup-root)]
-      (is (= 2 (count exclusions))
+          small-dir    (fs/file test-backup-data "music/small")
+          medium-dir   (fs/file test-backup-data "music/medium")
+          exclusions   ["medium/" "large/"]
+          backup-root  {:path (str (fs/path music-dir)) :exclusions exclusions}
+          exclusion-fns   (build-exclusions backup-root)]
+      (is (= 2 (count exclusion-fns))
           "There should only be 2 qualified paths for the small and medium sub directories")
-      (is (= path-small (some #{path-small} exclusions))
-          (str "The exclusion vector: " exclusions " is missing: " path-small))
-      (is (= path-medium (some #{path-medium} exclusions))
-          (str "The exclusion vector: " exclusions " is missing: " path-medium)))))
+      (is (col/included? small-dir exclusion-fns)
+          (str "The directory: " small-dir " should be included. exclusions: " exclusions))
+      (is (not (col/included? medium-dir exclusion-fns))
+          (str "The exclusion vector: " exclusions " is missing: " medium-dir)))))

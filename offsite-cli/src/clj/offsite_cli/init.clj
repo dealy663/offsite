@@ -30,53 +30,78 @@
 (def matcher (FileSystems/getDefault))
 
 (defn pattern-matcher-fn
-  "Returns a function that can be used to test if a file matches a glob or regex pattern"
-  [pat-str]
+  "Returns a function that can be used to test if a file matches a glob or regex pattern.
+  Path debug messages are triggered by preceding the path with !: the bang can follow the regex
+  types (e.g. 'glob!:/some/path**' or simply '!:/some/path'
 
-  (fn [f]
-    (su/dbg "matching file: " (.getName f) ", pat: " pat-str)
-    (when-let [m (.getPathMatcher matcher pat-str)]
-      (su/dbg "got path matcher: " m)
-      (.matches m (fs/canonicalize f)))))
+  Params:
+  pat-str      The pattern to match against in the returned function
+  debug        (optional - default = false) Outputs path debug messages"
+  ([pat-str]
+   (pattern-matcher-fn pat-str false))
+
+  ([pat-str debug]
+
+   (fn [f]
+     (if debug
+       (su/dbg "matching file: " (.getName f) ", pat: " pat-str))
+     (when-let [m (.getPathMatcher matcher pat-str)]
+       (if debug
+         (su/dbg "got path matcher: " m))
+       (.matches m (fs/canonicalize f))))))
 
 (defn string-path-matcher-fn
   "Returns a function which takes a path and returns true or false if the string-path either
   matches the pattern or begins with the pattern (if it is a directory?)
 
   Params:
-  str-pat      The pattern that will be matched against a path"
-  [str-pat]
+  str-pat      The pattern that will be matched against a path
+  debug        (optional - default = false) Outputs path debug messages"
+  ([str-pat]
+   (string-path-matcher-fn str-pat false))
 
-  (fn [file]
-    (let [f-path (-> file fs/path str)]
-      (su/dbg "pattern: " str-pat ", path: " f-path)
-      (or (= f-path str-pat)
-          (when (str/ends-with? str-pat fs/file-separator)
-            (let [f-path (if (.isDirectory file) (str f-path "/") f-path)]
-              (su/dbg "f-path: " f-path)
-              (str/starts-with? f-path str-pat)))))))
+  ([str-pat debug]
+
+   (let [str-pat-can (-> str-pat fs/canonicalize str)]
+     (fn [file]
+       (let [f-path (-> file fs/canonicalize str)]
+         (if debug
+           (su/dbg "pattern: " str-pat ", path: " f-path))
+         (or (= f-path str-pat-can)
+             (when (str/ends-with? str-pat fs/file-separator)
+               (let [f-path (if (fs/directory? file) (str f-path "/") f-path)]
+                 (if debug
+                   (su/dbg "f-path: " f-path))
+                 (str/starts-with? f-path str-pat-can)))))))))
 
 (defn build-exclusions
-  "Builds a vector of usable exclusions from a backup path.
+  "Builds a vector of usable exclusion functions from a backup path. The functions take a file as a parameter
+   and will return true or false if the supplied file is to be excluded from the backup
 
    Params:
    backup-path-def       An entry from a backup config file {:path 'some/path' :exclusions [ex1, ex2]}
 
-   Returns a vector of full paths to excluded dirs or files. Does not yet support wildcards or globbing"
+   Returns a vector of exclusion functions for dirs or files."
   [backup-path-def]
 
   (let [{:keys [path exclusions]} backup-path-def
         exclusions (filterv #(not (str/blank? %)) exclusions)]
-    (su/dbg "got path: " path " got exclusions: " exclusions)
+    ;    (su/dbg "got path: " path " got exclusions: " exclusions)
     (when (seq exclusions)
-      (let [root-dir       (io/file path)
-            canonical-path (fs/canonicalize root-dir)
-            path-root      (-> canonical-path .getRoot str)]
-        (mapv #(let [[type _] (str/split % #":")]
-                 (if (or (= "glob" type) (= "regex" type))
-                   (pattern-matcher-fn %)
-                   (string-path-matcher-fn (str path "/" %))))
-              exclusions)))))
+      #_(let [root-dir (io/file path)
+            ;canonical-path (fs/canonicalize root-dir)
+            path-root (-> canonical-path .getRoot str)])
+      (mapv #(let [[type pat] (str/split % #":")
+                   debug    (str/ends-with? type "!:")
+                   type     (if debug (str/replace-first type #"!" "") type)]
+               (if (or (str/starts-with? type "glob") (str/starts-with? type "regex"))
+                 (pattern-matcher-fn (str type pat) debug)
+                 (let [debug   (str/starts-with? % "!:")
+                       str-pat (if debug
+                                 (str/replace-first % #"!:" "")
+                                 %)]
+                   (string-path-matcher-fn (str path "/" str-pat) debug))))
+            exclusions))))
 
 (defn get-global-exclusions
   "Build a collection of global exclusions that will be applied to all paths
@@ -92,8 +117,9 @@
   ([paths-config]
    (mapv (fn [exclusion-pat]
            (let [[type _] (str/split exclusion-pat #":")]
-             (su/dbg "excl type: " type ", exclusion-str: " exclusion-pat)
-             (if (or (= "regex" type) (= "glob" type))
+             (if (str/ends-with? type "!")
+               (su/dbg "excl type: " type ", exclusion-str: " exclusion-pat))
+             (if (or (str/starts-with? type "regex") (str/starts-with? type "glob"))
                (pattern-matcher-fn exclusion-pat)
                (string-path-matcher-fn exclusion-pat)))) (-> paths-config :globals :exclusions))))
 

@@ -7,6 +7,9 @@
 ;;
 ;; To match a directory with a string be sure to include the trailing slash
 ;;  :exclusions ["/Users/john/temp/"]       - will exclude the temp dir in  John's home dir
+;;
+;; Preceding the path or exclusion with !: will print debug messages when matching this will work
+;; with both patterns and string matchers. (e.g. "glob!:/some/path" or "!:/some/path")
 
 {:globals {:exclusions  ["glob:*.DS_Store" "regex:.*/.DS_Store"]}
  :paths   [{:path       "test/backup-data/active/du.out"}

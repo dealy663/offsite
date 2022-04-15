@@ -78,19 +78,24 @@
    the file/dir path is fully qualified from the root of the filesystem.
 
    Params:
-   file-dir
+   file-dir       The directory to test for inclusion in backup
+   exclusions    (optional - default @su/paths-config) These will be created by the init
 
    Returns true if the file/dir path is not in the exclusion list"
-  [file-dir]
+  ([file-dir]
+   (included? file-dir (:exclusions @su/paths-config)))
 
-  (when file-dir
-    (let [exclusions (:exclusions @su/paths-config)
-          excl-match (some #(% file-dir) exclusions)]
-      (not excl-match))))
+  ([file-dir exclusions]
+
+   (let [file-dir (if (and (string? file-dir) (empty? file-dir)) nil file-dir)]
+     (if file-dir
+       (let [excl-match (some #(% file-dir) exclusions)]
+         (not excl-match))
+       false))))
 
 ;; this function should be refactored into something smaller I think
 ;; Probably should really look at re-writing this with babashka/fs walk-file-tree functions
-  (defn recurse-paths!
+  #_(defn recurse-paths!
     "Walks a file system storing all directories that aren't excluded. Each directory that is found will
      be written to the DB as a path-block for later processing.
 
@@ -159,11 +164,11 @@
   [dir-info-atom]
 
   (fn [dir attrs]
-    (su/dbg "pre-visit-dir got dir: " dir)
+    ;(su/dbg "pre-visit-dir got dir: " dir)
     (let [dir-file   (.toFile dir)
           ;dir-path  (-> dir .toFile .getCanonicalPath)
           parent-id (-> @dir-info-atom :parent-ids first)]
-      (if (included? (str dir))
+      (if (included? dir)
         (let [path-block (create-path-block dir-file parent-id)]
           (dbc/add-path-block! path-block)
           (swap! dir-info-atom update :parent-ids conj (:xt/id path-block))
@@ -188,10 +193,10 @@
   [dir-info-atom]
 
   (fn [path attrs]
-    (su/dbg "vist-file got path: " path)
+    ;(su/dbg "vist-file got path: " path)
     (let [file (.toFile path)
           file-path (.getCanonicalPath file)]
-      (if (included? file-path)
+      (if (included? path)
         (let [path-block (create-path-block file (-> @dir-info-atom :parent-ids first))]
           (dbc/add-path-block! path-block)
           (swap! dir-info-atom update :byte-count + (fs/size file))
@@ -254,7 +259,7 @@
    (when-not (:started @collector-state)
      (ch/m-publish :col-msg (str "Starting collector, root paths: " backup-root-paths))
      (when-not (nil? (:backup-paths @collector-state))
-       (dosync (alter collector-state assoc :backup-paths nil)))
+       (dosync (alter collector-state assoc :backup-paths nil :total-bytes 0)))
 
      (dosync (alter collector-state update-in [:backup-count] inc))
      (try
@@ -266,11 +271,14 @@
                      :byte-count  0}]
            (if-let [path-def (first root-paths)]
              (do
-               (dosync (alter collector-state update-in [:backup-paths] conj path-def))
+               ;               (dosync (alter collector-state update-in [:backup-paths] conj path-def))
                (let [path-block (create-path-block (:path path-def))
                      root-path (:root-path path-block)
-                     {:keys [dir-count file-count byte-count :as result]} (recurse-paths! root-path progress-callback)]
-(su/dbg "path: " root-path " dir-count: " dir-count " file-count: " file-count " byte-count: " byte-count)
+                     {:keys [dir-count file-count byte-count :as result]} (walk-paths root-path)]
+                 (dosync
+                   (alter collector-state update :backup-paths conj path-def)
+                   (alter collector-state update :total-bytes + byte-count))
+                 ;(su/dbg "path: " root-path " dir-count: " dir-count " file-count: " file-count " byte-count: " byte-count)
                  (recur (rest root-paths)
                         (assoc acc :dir-count  (+ dir-count  (:dir-count acc))
                                    :file-count  (+ file-count  (:file-count acc))

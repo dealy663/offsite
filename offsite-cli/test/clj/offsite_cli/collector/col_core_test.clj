@@ -157,7 +157,7 @@
           file-path (.getCanonicalPath file)]
       (if (included? file-path)
         (do
-          (su/dbg "visiting file: " file-path)
+          ;(su/dbg "visiting file: " file-path)
           ;(su/dbg "visiting file: " path)
           (swap! dir-info-atom update :byte-count + (fs/size file))
           (swap! dir-info-atom update :file-count inc)
@@ -194,7 +194,27 @@
                                  :visit-file (visit-file-fn dir-info)})
       @dir-info)))
 
-(deftest recurse-paths!-test
+(deftest walk-paths-test
+  (let [backup-cfg         (init/get-paths (str test-configs-dir "/backup-paths.edn"))
+        music-root-path    (-> backup-cfg :backup-paths second)
+        music-path         (:path music-root-path)
+        music-exclusions   (:exclusions music-root-path)
+        music-block        (create-path-block (-> backup-cfg :backup-paths second :path))]
+    (testing "Create a whole directory tree in the DB"
+      (let [orig-col-state @col/collector-state
+            test-dir       (fs/file (:orig-path music-block))
+            result         (col/walk-paths test-dir)
+            sub-dirs       (->> test-dir fs/list-dir (filter #(fs/directory? %)))
+            included-count (- (count sub-dirs) (count music-exclusions))]
+        (su/dbg "sub-dirs: " sub-dirs)
+        (su/dbg "result: " result)
+        (is (some? result)
+            "A valid result is expected after recurse-paths!")
+        (is (= (inc included-count) (:dir-count result))
+            "The number of directories processed should match the sub-dirs of music-block + 1
+             for the music-block root and taking away the count of excluded dirs")))))
+
+#_(deftest recurse-paths!-test
   (let [backup-cfg         (init/get-paths (str test-configs-dir "/backup-paths.edn"))
         music-root-path    (-> backup-cfg :backup-paths second)
         music-path         (:path music-root-path)
@@ -244,9 +264,9 @@
 
   (testing "included? negative tests"
     (init/get-paths (str test-configs-dir "/backup-paths.edn"))
-    (is (nil? (included? nil))
-        "Testing if nil is included doesn't make sense and should just return nil")
-    (is (nil? (included? ""))
+    (is (false? (included? nil))
+        "Testing if nil is included doesn't make sense and should just return false")
+    (is (false? (included? ""))
         "An empty string should not be included as part of the backup effort")))
 
 (defn sum-fs-info
@@ -264,8 +284,8 @@
             result     (col/start (:backup-paths @init/backup-paths))
             d-msg      (md/timeout! (ms/take! s-msg) 2000 :timedout)
             d-complete (md/timeout! (ms/take! s-complete) 2000 :timedout)
-            _ (su/dbg "got paths: " paths)
-            _ (su/dbg "got path-blocks: " (dbc/get-all-path-blocks (:backup-id db/get-last-backup!) -1))
+            ;_ (su/dbg "got paths: " paths)
+            ;_ (su/dbg "got path-blocks: " (dbc/get-all-path-blocks (:backup-id db/get-last-backup!) -1))
             fs-info    (->> paths
                             (map #(fs-get-root-path-info (:path %)))
                             sum-fs-info)]
