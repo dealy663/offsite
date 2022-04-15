@@ -12,16 +12,6 @@
 (def test-configs-dir "test/configurations")
 (def test-backup-data "test/backup-data")
 
-#_(defn regex-eq?
-  "Returns true if the regex patterns are equivalent
-
-  Params:
-  regex-l
-  regex-r"
-  [regex-l regex-r]
-
-  (= (.pattern regex-l) (.pattern regex-r)))
-
 (deftest test-init
   (testing "Found default backup-paths"
     (is (not (nil? (get-paths))))
@@ -59,17 +49,7 @@
           "The number of exclusions in backup-paths.edn should match the count returned from get-paths"))))
 
 (deftest build-exclusions-test
-  #_(testing "the building of relative exclude paths"
-    (let [backup-root {:path (str test-backup-data "/music") :exclusions ["small" "medium"]}
-          exc1        (->> "music/small" (fs/file test-backup-data) fs/canonicalize str Pattern/compile)
-          exc2        (->> "music/medium" (fs/file test-backup-data) fs/canonicalize str Pattern/compile)
-          exclusions  (build-exclusions backup-root)]
-      (is (some #(regex-eq? exc1 %) exclusions)
-          (str "The exclusion vector: " exclusions " is missing: " exc1))
-      (is (some #(regex-eq? exc2 %) exclusions)
-          (str "The exclusion vector: " exclusions " is missing: " exc2))))
-
-  #_(testing "negative tests for building the relative exclude paths"
+    #_(testing "negative tests for building the relative exclude paths"
     (let [backup-root  {:path (str test-backup-data "/music")}
           excl-none    (build-exclusions backup-root)
           backup-root  {:path (str test-backup-data "/music") :exclusions []}
@@ -90,15 +70,22 @@
           (str "The exclusion vector: " excl-small2 " is missing: " excl-small2))))
 
   (testing "Fully qualified exclude paths"
-    (let [music-dir    (fs/file test-backup-data "music")
-          small-dir    (fs/file test-backup-data "music/small")
-          medium-dir   (fs/file test-backup-data "music/medium")
-          exclusions   ["medium/" "large/"]
-          backup-root  {:path (str (fs/path music-dir)) :exclusions exclusions}
-          exclusion-fns   (build-exclusions backup-root)]
+    (let [music-dir        (fs/file test-backup-data "music")
+          small-dir        (fs/file test-backup-data "music/small")
+          medium-dir       (fs/file test-backup-data "music/medium")
+          large-dir        (fs/file test-backup-data "music/large")
+          exclusions       ["medium/" (str "large/")]
+          backup-root      {:path (str (fs/path music-dir)) :exclusions exclusions}
+          exclusion-fns    (build-exclusions backup-root)
+          large-path       (-> large-dir fs/canonicalize (str "/"))
+          lg-exclusions    [large-path]
+          fq-backup-root   {:path "/" :exclusions lg-exclusions}
+          lg-exclusion-fns (build-exclusions fq-backup-root)]
       (is (= 2 (count exclusion-fns))
           "There should only be 2 qualified paths for the small and medium sub directories")
       (is (col/included? small-dir exclusion-fns)
           (str "The directory: " small-dir " should be included. exclusions: " exclusions))
       (is (not (col/included? medium-dir exclusion-fns))
-          (str "The exclusion vector: " exclusions " is missing: " medium-dir)))))
+          (str "The exclusion vector: " exclusions " is missing: " medium-dir))
+      (is (not (col/included? large-dir lg-exclusion-fns))
+          (str "The exclusion vector: " lg-exclusions " didn't exclude: " large-dir)))))
