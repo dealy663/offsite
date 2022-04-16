@@ -2,7 +2,7 @@
 ;; A path can include vector of files or directories to be included
 ;; TODO: Figure out some intelligent way to include regexes or globs for the excludes
 
-{:globals {:exclusions ["glob:*.DS_Store" "regex:.*nobackup.*"]}
+{:globals {:exclusions ["glob:**.DS_Store" "regex:.*nobackup.*"]}
  :paths   [{:path       "test/backup-data/du.out"}
            {:path       "test/backup-data/music"
             :exclusions ["medium/" "large/" "glob:extra-small/*.xcld"]}

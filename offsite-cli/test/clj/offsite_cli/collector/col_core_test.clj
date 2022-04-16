@@ -205,7 +205,6 @@
         ret    (md/deferred)]
     (a/go-loop [event              (md/timeout! (ms/take! wt-msg) 1000 :timedout)
                 excluded-dir-count 0]
-      (su/dbg "got walk-tree event: " @event)
       (cond
         (= :timedout @event) (md/error! ret :timedout)
         (= :complete @event) (md/success! ret excluded-dir-count)
@@ -258,7 +257,8 @@
           medium-path     (fs/canonicalize medium-dir)
           medium-foo-path (str medium-path "/foo.txt")
           no-backup-path  (str xs-path "/nobackup.txt")
-          ignore-path     (str xs-path "/ignore.xcld")]
+          ignore-path     (str xs-path "/ignore.xcld")
+          ds-store-path   (str music-path "/.DS_Store")]
       (is (included? (str music-path))
           (str "The path " (str music-path) " should not be on the exclusion list"))
       (is (not (included? (str medium-path)))
@@ -270,7 +270,9 @@
       (is (not (included? no-backup-path))
           (str "The file " no-backup-path " should not be included."))
       (is (not (included? ignore-path))
-          (str "The file " ignore-path " should not be included."))))
+          (str "The file " ignore-path " should not be included."))
+      (is (not (included? ds-store-path))
+          (str "The file " ds-store-path " should not be included"))))
 
   (testing "included? negative tests"
     (init/get-paths (str test-configs-dir "/backup-paths.edn"))
