@@ -177,7 +177,9 @@
             (ch/m-publish :root-path path-block))
           (ch/m-publish :col-progress (dissoc @dir-info-atom :parent-ids))
           :continue)
-        :skip-subtree))))
+        (do
+          (ch/m-publish :walk-tree [:excluded-dir dir])
+          :skip-subtree)))))
 
 (defn- post-visit-dir-fn
   [dir-info-atom]
@@ -202,7 +204,9 @@
           (swap! dir-info-atom update :byte-count + (fs/size file))
           (swap! dir-info-atom update :file-count inc)
           :continue)
-        :skip-subtree))))
+        (do
+          (ch/m-publish :walk-tree [:excluded-file path])
+          :skip-subtree)))))
 
 (defn walk-paths
   "Go through all of the paths defined as part of this backup and build a catalog in the DB, while making sure to
@@ -220,6 +224,7 @@
         post-visit-dir (post-visit-dir-fn path-info-atom)
         visit-file      (visit-file-fn path-info-atom)]
     (fs/walk-file-tree root-file-dir {:pre-visit-dir pre-visit-dir :post-visit-dir post-visit-dir :visit-file visit-file})
+    (ch/m-publish :walk-tree :complete)
     @path-info-atom))
 
 (defn get-backup-info

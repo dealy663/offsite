@@ -14,7 +14,8 @@
             [offsite-cli.channels :as ch]
             [manifold.stream :as ms]
             [manifold.deferred :as md]
-            [manifold.bus :as mb]))
+            [manifold.bus :as mb]
+            [clojure.core.async :as a]))
 
 (defn- with-components
   [components f]
@@ -194,49 +195,82 @@
                                  :visit-file (visit-file-fn dir-info)})
       @dir-info)))
 
+(defn walk-tree-handler
+  "Handles events while walking the directory tree
+
+  Returns a deferred that will hold then number of excluded directories or a :timedout error"
+  []
+
+  (let [wt-msg (ch/m-subscribe :walk-tree)
+        ret    (md/deferred)]
+    (a/go-loop [event              (md/timeout! (ms/take! wt-msg) 1000 :timedout)
+                excluded-dir-count 0]
+      (su/dbg "got walk-tree event: " @event)
+      (cond
+        (= :timedout @event) (md/error! ret :timedout)
+        (= :complete @event) (md/success! ret excluded-dir-count)
+        :else (let [[wt-event _] @event]
+                (recur (md/timeout! (ms/take! wt-msg) 1000 :timedout)
+                       (if (= :excluded-dir wt-event)
+                         (inc excluded-dir-count)
+                         excluded-dir-count)))))
+    ret))
+
 (deftest walk-paths-test
   (let [backup-cfg         (init/get-paths (str test-configs-dir "/backup-paths.edn"))
         music-root-path    (-> backup-cfg :backup-paths second)
         music-path         (:path music-root-path)
-        music-exclusions   (:exclusions music-root-path)
+        ;music-exclusions   (:exclusions music-root-path)
         music-block        (create-path-block (-> backup-cfg :backup-paths second :path))]
     (testing "Create a whole directory tree in the DB"
       (let [orig-col-state @col/collector-state
+            d-excl         (walk-tree-handler)
             test-dir       (fs/file (:orig-path music-block))
             result         (col/walk-paths test-dir)
-            sub-dirs       (->> test-dir fs/list-dir (filter #(fs/directory? %)))
-            included-count (- (count sub-dirs) (count music-exclusions))]
-        (is (some? result)
-            "A valid result is expected after recurse-paths!")
-        (is (= (inc included-count) (:dir-count result))
-            "The number of directories processed should match the sub-dirs of music-block + 1
-             for the music-block root and taking away the count of excluded dirs")
-        (let [fs-info (fs-get-info-test music-path)]
-          (is (= music-path (:root fs-info))
-              "The root of fs-info should match the root that was used to start the search")
-          (is (= (:dir-count fs-info) (:dir-count result))
-              "The directory count on the file-system doesn't match that returned by recurse-paths!")
-          (is (= (:file-count fs-info) (:file-count result))
-              "The file count on the file-system doesn't match that returned by recurse-paths!")
-          (is (= (:byte-count fs-info) (:byte-count result))
-              "The total byte count on the file-system doesn't match that returned by recurse-paths!"))))))
+            x-dir-count    @d-excl]
+        (is (not (= :timedout x-dir-count))
+            "walk-tree-handler timedout while waiting for dir exclusion events.")
+        (let [sub-dirs       (->> test-dir fs/list-dir (filter #(fs/directory? %)))
+              included-count (- (count sub-dirs) x-dir-count)]
+          (is (some? result)
+              "A valid result is expected after recurse-paths!")
+          (is (= (inc included-count) (:dir-count result))
+              "The number of directories processed should match the sub-dirs of music-block + 1
+               for the music-block root and taking away the count of excluded dirs")
+          (let [fs-info (fs-get-info-test music-path)]
+            (is (= music-path (:root fs-info))
+                "The root of fs-info should match the root that was used to start the search")
+            (is (= (:dir-count fs-info) (:dir-count result))
+                "The directory count on the file-system doesn't match that returned by recurse-paths!")
+            (is (= (:file-count fs-info) (:file-count result))
+                "The file count on the file-system doesn't match that returned by recurse-paths!")
+            (is (= (:byte-count fs-info) (:byte-count result))
+                "The total byte count on the file-system doesn't match that returned by recurse-paths!")))))))
 
 (deftest included?-test
   (testing "included? function"
     (init/get-paths (str test-configs-dir "/backup-paths.edn"))
     (let [music-dir       (fs/file backup-data-dir "music")
+          xs-dir          (fs/file backup-data-dir "music/extra-small")
+          xs-path         (fs/canonicalize xs-dir)
           music-path      (fs/canonicalize music-dir)
           medium-dir      (fs/file backup-data-dir "music/medium")
           medium-path     (fs/canonicalize medium-dir)
-          medium-foo-path (str medium-path "/foo.txt")]
+          medium-foo-path (str medium-path "/foo.txt")
+          no-backup-path  (str xs-path "/nobackup.txt")
+          ignore-path     (str xs-path "/ignore.xcld")]
       (is (included? (str music-path))
-          "The music path should not be on the exclusion list")
+          (str "The path " (str music-path) " should not be on the exclusion list"))
       (is (not (included? (str medium-path)))
           "The music/medium path should be on the exclusion list")
       (is (not (included? medium-foo-path))
           "Files within the excluded music/medium path should not be included")
       (is (not (included? (str medium-path "/bar/file.txt")))
-          "Files within sub-dirs fo the excluded music/medium path should not be included")))
+          "Files within sub-dirs fo the excluded music/medium path should not be included")
+      (is (not (included? no-backup-path))
+          (str "The file " no-backup-path " should not be included."))
+      (is (not (included? ignore-path))
+          (str "The file " ignore-path " should not be included."))))
 
   (testing "included? negative tests"
     (init/get-paths (str test-configs-dir "/backup-paths.edn"))

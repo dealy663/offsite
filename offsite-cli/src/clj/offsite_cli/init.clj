@@ -85,17 +85,18 @@
   [backup-path-def]
 
   (let [{:keys [path exclusions]} backup-path-def
-        exclusions (filterv #(not (str/blank? %)) exclusions)]
+        exclusions (filterv #(not (str/blank? %)) exclusions)
+        fq-path    (fs/canonicalize path)]
     ;    (su/dbg "got path: " path " got exclusions: " exclusions)
     (when (seq exclusions)
       #_(let [root-dir (io/file path)
             ;canonical-path (fs/canonicalize root-dir)
             path-root (-> canonical-path .getRoot str)])
       (mapv #(let [[type pat] (str/split % #":")
-                   debug    (str/ends-with? type "!:")
+                   debug    (str/ends-with? type "!")
                    type     (if debug (str/replace-first type #"!" "") type)]
                (if (or (str/starts-with? type "glob") (str/starts-with? type "regex"))
-                 (pattern-matcher-fn (str type pat) debug)
+                 (pattern-matcher-fn (str type ":" fq-path "/" pat) debug)
                  (let [debug   (str/starts-with? % "!:")
                        str-pat (if debug
                                  (str/replace-first % #"!:" "")
