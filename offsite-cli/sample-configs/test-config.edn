@@ -1,7 +1,10 @@
 ;; WARNING
 ;; The test-config.edn file is used for local environment variables, such as database credentials.
 ;; This file is listed in .gitignore and will be excluded from version control by Git.
+;;
+;; This would normally be copied into the project root dir and adjusted for the specific
+;; configuration of this machine and instance fo the service/application
 
-{:port 3000
+{:port 3010
  :xtdb-config {}}
 
