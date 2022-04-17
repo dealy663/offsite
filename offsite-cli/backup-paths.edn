@@ -11,10 +11,10 @@
 ;; Preceding the path or exclusion with !: will print debug messages when matching this will work
 ;; with both patterns and string matchers. (e.g. "glob!:/some/path" or "!:/some/path")
 
-{:globals {:exclusions  ["glob:*.DS_Store" "regex:.*/.DS_Store"]}
+{:globals {:exclusions  ["glob:*.DS_Store" "regex:.*nobackup.*"]}
  :paths   [{:path       "test/backup-data/active/du.out"}
            {:path       "test/backup-data/active/music"
-            :exclusions ["medium/" "large/"]}
+            :exclusions ["medium/" "large/" "glob:extra-small/*.xcld"]}
            {:path       "test/backup-data/active/photos"
             :exclusions ["DSC_0011.JPG" "DSC_0012.JPG" "DSC_0014.JPG" "DSC_0014.JPG" "DSC_0015.JPG" "DSC_0016.JPG" "DSC_0017.JPG"
                          "DSC_0018.JPG" "DSC_0019.JPG" "DSC_0020.JPG" "DSC_0021.JPG" "DSC_0022.JPG" "DSC_0023.JPG" "DSC_002.JPG"]}]}

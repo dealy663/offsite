@@ -128,7 +128,7 @@
   [dir-info-atom]
 
   (fn [path attrs]
-    ;(su/dbg "vist-file got path: " path)
+    ;(su/dbg "visit-file got path: " path)
     (let [file (.toFile path)
           file-path (.getCanonicalPath file)]
       (if (included? path)

@@ -8,7 +8,8 @@
   (:require
     [offsite-cli.db.db-core :as dbc]
     [xtdb.api :as xt]
-    [clojure.tools.logging :as log])
+    [clojure.tools.logging :as log]
+    [clojure.string :as str])
   (:import (java.util UUID)))
 
 
@@ -131,3 +132,25 @@
                 :where [[e :backup-id backup-id]
                         [e :data-type :path-block]]
                 :in    [backup-id]} backup-id)))
+
+(defn find-path-block
+  "Fetches a path-block by navigating through the DB following the path defined by parent-id references
+  for path blocks belonging to a backup and starting at the given path-block.
+
+  Params:
+  starting-path-block-id     The path-block ID of the block to start the search from (could be a root)
+  ending-path                The path to search for can be as short as the filename, but might need to include
+                             some of it's preceding directories in case the file is found in multiple paths
+                             and only one is desired.
+
+  Returns a vector of path-blocks which match the search criteria"
+  [starting-path-block-id ending-path]
+
+  (loop [acc               []
+         child-path-blocks (get-child-path-blocks starting-path-block-id)]
+    (if (empty? child-path-blocks)
+      acc
+      (let [block (-> child-path-blocks first first)]
+        (if (str/ends-with? (:root-path block) ending-path)
+          (recur (conj acc block) (rest child-path-blocks))
+          (recur acc (concat (rest child-path-blocks) (get-child-path-blocks (:xt/id block)))))))))
