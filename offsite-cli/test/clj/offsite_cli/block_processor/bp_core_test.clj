@@ -13,7 +13,8 @@
             [offsite-cli.db.db-core :as db]
             [offsite-cli.test-utils :as tu]
             [clojure.string :as str]
-            [offsite-cli.block-processor.bp-core :as bp])
+            [offsite-cli.block-processor.bp-core :as bp]
+            [offsite-cli.block-processor.bp-core :as bpc])
   (:import [java.io File]
            [java.nio.file Files]
            (java.util UUID)))
@@ -32,18 +33,14 @@
 (defn- with-components
   [components f]
   (apply mount/start components)
-  #_(ch/new-channel! :onsite-block-chan bp/stop-key)
-  ;;(bp/start bp-start-test-impl)
   (f)
-  ;(ch/stop-all-channels! ch/channels)
-  #_(ch/reset-channels!)
-  (apply mount/stop components)
-  #_(bp/stop bp-stop-test-impl))
+  (apply mount/stop components))
 
 (use-fixtures
   :once
   #(with-components [#'offsite-cli.config/env
-                     #'offsite-cli.db.db-core/db-node*] %))
+                     #'offsite-cli.db.db-core/db-node*
+                     #'offsite-cli.channels/channels] %))
 
 ;(doto
 ;  (LoggerFactory/getLogger "xtdb.query")
@@ -79,7 +76,7 @@
   #_(ch/put! :offsite-block-chan bp/stop-key)
   :stopped)
 
-(defn simple-start-test-impl
+(defn simple-start-test-fn
   "Test implementation of start, can be overridden in test by passing customized body
 
    Returns a function with the start logic"
@@ -149,7 +146,7 @@
 (deftest start-stop-test
   (testing "Start and stop of bp-core functions as expected"
     (is (= false (:started @bpc/bp-state)))
-    (is (= :started (bpon/start (simple-start-test-impl)))
+    (is (= :started (bpon/start (simple-start-test-fn)))
         "The simple start implementation should just return :started")
     (is (= true (:started @bpc/bp-state)))
     ;(su/dbg "stopping simple-stop-test-impl")

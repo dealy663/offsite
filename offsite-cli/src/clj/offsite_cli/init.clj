@@ -2,7 +2,7 @@
   (:require
     [clojure.edn :as edn]
     [mount.core :refer [defstate]]
-    [offsite-cli.block-processor.onsite]
+    ;    [offsite-cli.block-processor.onsite]
     [clojure.java.io :as io]
     [offsite-cli.system-utils :as su]
     [clojure.string :as str]
@@ -12,7 +12,15 @@
            (java.nio.file Path Paths FileSystems)))
 
 
-(declare get-paths)
+(def empty-state
+  {:catalog-state nil
+   :backup-state  nil
+   :onsite-state  nil
+   :offsite-state nil})
+
+(def client-state (atom empty-state))
+
+(declare get-paths backup-paths)
 
 (defstate backup-paths
   :start (do
@@ -123,6 +131,12 @@
              (if (or (str/starts-with? type "regex") (str/starts-with? type "glob"))
                (pattern-matcher-fn exclusion-pat)
                (string-path-matcher-fn exclusion-pat)))) (-> paths-config :globals :exclusions))))
+
+(defn reset
+  "Reset the client-state"
+  []
+
+  (dosync (reset! client-state empty-state)))
 
 (defn get-exclusions
   "Adds the exclusions set for each path to the paths config

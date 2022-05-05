@@ -7,7 +7,8 @@
             [clojure.core.reducers :as r]
             [manifold.deferred :as md]
             [manifold.stream :as ms]
-            [manifold.bus :as mb]))
+            [manifold.bus :as mb]
+            [manifold.go-off :as mg]))
 
 ;(def chan-atom (atom {:chan-depth         10
 ;                      :channels           {}
@@ -27,6 +28,8 @@
                     :stop-key nil})                         ;; stop key probably unnecessary, can either be channel-key
                                                             ;; or a keyword based off of channel-key
 
+(def event-handler-fn-ref (ref {}))
+
 (declare close-all-channels! m-drop-all-subscribers)
 (mount/defstate channels
   :start (do
@@ -38,6 +41,26 @@
           ;          (su/dbg "closing channels")
           (m-drop-all-subscribers)
           #_(close-all-channels! channels)))
+
+(defn register-event-handler-fn
+  "Adds a function to a seq of event handler fns for a given topic
+
+  Params:
+  topic        A Manifold event bus topic
+  fn           A function to execute"
+  [topic fn]
+
+  (dosync
+    (when-not (topic event-handler-fn-ref)
+      (alter event-handler-fn-ref assoc topic #{}))
+    (alter event-handler-fn-ref update topic conj fn)))
+
+;(defn unregister-event-handler-fn
+;  "Removes a function from the seq of event handler fns for a given topic
+;
+;  Params:
+;  topic       A Manifold event bus topic
+;  fn          A function to disconnect from the execution sequence")
 
 ;(defn get-ch
 ;  "Fetch a channel
@@ -458,6 +481,36 @@
 ;  ""
 ;  [])
 
+
+
+(defn m-event-handler
+  "Handles notifications for new root-paths that are ready for processing.
+
+   Params:
+   stream     A manifold stream that has subscribed to the event-bus for :root-path messages
+   handler-fn Function to handle the event taken from the stream
+
+   Returns a map of the stream and the deferred result of the final call to handler-fn"
+  ([stream handler-fn]
+   (m-event-handler stream handler-fn nil))
+
+  ([stream handler-fn key]
+
+   (let [deferred (md/deferred)]
+     (mg/go-off
+       (loop [acc nil]
+         (if-let [d-event (mg/<!? stream)]
+           (recur
+             (try
+               ;(su/dbg "got an event -> " d-event)
+               (handler-fn d-event)
+               (catch Exception e
+                 (log/error (str "Event handler exception: " (.getMessage e))))))
+           (do
+             (su/dbg "exiting m-event-handler: " key)
+             (md/success! deferred acc)))))
+     {:stream stream :result deferred})))
+
 (defn m-subscribe
   "Subscribe to events on the message bus
 
@@ -467,9 +520,27 @@
   Returns a stream which acts as a sink for the subscribed event"
   [event-topic]
 
-  (let [s (mb/subscribe (:bus @channels) event-topic)]
-    (dosync (alter channels update :m-streams conj s))
-    s))
+  (let [bus (:bus @channels)]
+    (when (nil? bus)
+      (log/error "Event bus has not been initialized")
+      (throw (Exception. "Event bus has not been initialized")))
+    (let [s (mb/subscribe bus event-topic)]
+      (dosync (alter channels update :m-streams conj s))
+      s)))
+
+(defn m-sub-monitor
+  "Subscribe to an event on the message bus and pass stream to a monitor loop
+
+  Params:
+  event-topic    The event to subscribe and listen for
+  handler-fn     A function to be called when each event is taken off the stream
+
+  Returns a map of the stream and the deferred result of the final call to handler-fn"
+  [event-topic handler-fn]
+
+  (-> event-topic
+      m-subscribe
+      (m-event-handler handler-fn event-topic)))
 
 (defn m-publish
   "Publish an event to the message bus
@@ -483,6 +554,16 @@
 
   ;  (su/dbg "m-publish event-topic: " event-topic " payload: " payload)
   (mb/publish! (:bus @channels) event-topic payload))
+
+(defn m-drop-stream!
+  "Close and drop a stream from channels
+
+  Params:
+  s      The stream to close and drop"
+  [s]
+
+  (ms/close! s)
+  (dosync (alter channels update :m-streams #(remove identical? %))))
 
 (defn m-close-all-subscribers
   "Close all subscriber streams"

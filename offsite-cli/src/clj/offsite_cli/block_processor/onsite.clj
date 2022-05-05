@@ -17,7 +17,9 @@
             [manifold.stream :as ms]
             [manifold.deferred :as md]
             [mount.core :as mount]
-            [offsite-cli.db.catalog :as dbc]))
+            [offsite-cli.db.catalog :as dbc]
+            [manifold.go-off :as mg]
+            [babashka.fs :as fs]))
 
 (declare start stop)
 (mount/defstate onsite-bp-state
@@ -62,6 +64,7 @@
     Returns an offsite block for a directory to be prepped for backup"
    [ons-dir-block]
 
+   (su/dbg "process-dir: " (:orig-path ons-dir-block))
    (let [file-dirs (.listFiles (:file-dir ons-dir-block))]
       (->> file-dirs
            (filter #(col/included? %))
@@ -85,6 +88,7 @@
     Returns file-state map if the object is new or has changed and is to be backed up"
    [ons-file-block]
 
+   (su/dbg "process-file: " (:orig-path ons-file-block))
    (let [file-info  (bpc/make-block-info ons-file-block)
          ;_ (su/dbg "Got block info: " file-info)
          file-state (or (db/get-ofs-block-state! (:xt/id file-info))
@@ -99,138 +103,147 @@
          file-state)))
 
 (defn process-block
-   "Handles an onsite block. If it refers to a file then it is read, disintegrated, encrypted and broadcast.
-    If it is a directory then a new block for the directory is created and entered into the block queue
+  "Handles an onsite block. If it refers to a file then it is read, disintegrated, encrypted and broadcast.
+   If it is a directory then a new block for the directory is created and entered into the block queue
 
-    Params:
-    block        The onsite block to be processed
+   Params:
+   block        The onsite block to be processed
 
-    Returns an empty offsite block ready to be prepped for backup"
-   [block]
+   Returns an empty offsite block ready to be prepped for backup"
+  [block]
 
-   (if (.isDirectory (:file-dir block))
-      (process-dir block)
-      (process-file block)))
-
-(defn- onsite-block-handler
-   "Overridable logic for handling onsite blocks to prep for cataloguing and backup
-
-    Params:
-    block          The file-dir block that is ready for processing"
-   [block]
-
-   (when-not (= bpc/stop-key block)
-      (su/dbg "received block: " block)
-      (->> block
-           (process-block)
-           #_(ch/put! :offsite-block-chan))))
+  (let [block     (assoc block :state :onsite)
+        ons-block (assoc block :file-dir (fs/file (:orig-path block)))]
+    (try
+      ;(su/dbg "process-block: handing block off to offsite processor " block)
+      ;(su/dbg "process-block: easy-ingest! -> " (db/easy-ingest! [block]))
+      (db/easy-ingest! [block])
+      (swap! bpc/bp-counters update :onsite-block-count inc)
+      (bpof/onsite-block-handler ons-block)
+      (catch Throwable e (str "Caught exception while processing onsite block: " (.getMessage e))))
+    #_(if (.isDirectory (:file-dir ons-block))
+      (process-dir ons-block)
+      (process-file ons-block))))
 
 (defn- path-block-handler
   "Overrideable logic for processing path-blocks that have been added to the DB for the current
-   backup."
+   backup. This function will process all path-blocks currently in the catalog and then will
+   check to see if any more have been added while it was working. If there are more to process
+   then the function calls itself again."
   ;; for now just making this callable with an ignored parameter or nothing at all
   ([]
    (path-block-handler nil))
 
-  ([_]
+  ([deferred]
+   (su/dbg "path-block-handler: starting")
+   (a/go-loop [opp (-> @bpc/bp-state :onsite-path-processor first)]
+     (when opp
+      (dosync (alter bpc/bp-state update :onsite-path-processor rest))
+      (with-open [path-seq-itr (dbc/get-path-blocks-lazy (:backup-id (col/get-backup-info)) {:state :catalog})]
+        (doseq [path-block (iterator-seq path-seq-itr)]
+          (su/dbg "path-block-handler: " (first path-block))
+          (->> path-block
+               first
+               (process-block))))
+      (recur (-> @bpc/bp-state :onsite-path-processor first))))
+   (md/success! deferred true)
+   #_(dosync
+     (when (:catalog-update @bpc/bp-state)
+       (alter bpc/bp-state assoc
+              :catalog-update nil
+              :onsite-path-processor (md/future (path-block-handler)))))
+   (su/dbg "path-block-handler: exiting")))
 
-   (with-open [path-seq-itr (dbc/get-path-blocks-lazy (:backup-id col/get-backup-info))]
-     (doseq [path-block (iterator-seq path-seq-itr)]
-       (su/dbg "received block: " path-block)
-       (->> path-block
-            (process-block)
-            ;(ch/put! :offsite-block-chan)
-            )))))
+(defn- path-block-handler2
+  [buf-stream]
 
-#_(defn onsite-block-listener
-   "Starts a thread which listens to the ::onsite-block-chan for new blocks which need
-    to be processed
+  (mg/go-off
+    (let [msg (mg/<!? buf-stream)]
+      (with-open [path-seq-itr (dbc/get-path-blocks-lazy (:backup-id (col/get-backup-info)) {:state :catalog})]
+        (doseq [path-block (iterator-seq path-seq-itr)]
+          (su/dbg "path-block-handler: " (first path-block))
+          (->> path-block
+               first
+               (process-block)))))))
 
-    Params:
-    block-handler      (optional, default is (onsite-block-handler)), this is intended to be overridden in testing"
-   ([block-handler]
-
-    (a/go
-       (su/dbg "OnBL: in loop thread")
-
-       (loop [started (:started @bpc/bp-state)
-              break false]
-          (when-not (or break (not started))
-             (su/dbg "OnBL: waiting for block")
-             (let [block (a/<! (ch/get-ch :onsite-block-chan))]
-                (if (nil? block)
-                   (log/error "Retrieved nil from closed :onsite-block-channel, started: " started ", break: " break)
-                   (do
-                      (su/dbg "Took block off :onsite-block-chan, val: " block)
-                      (block-handler block)
-                      (recur (:started @bpc/bp-state) (= bpc/stop-key block))))))))
-    (su/dbg "OnBL: block-processor stopped")
-    #_(ch/close! :onsite-block-chan)
-    (su/dbg "OnBL: Closing ::onsite-block-chan."))
-
-   ([]
-    ;;(onsite-block-listener onsite-block-handler)
-    (onsite-block-listener path-block-handler)))
-
-(defn onsite-block-monitor
+(defn catalog-block-handler
   "Monitor function for onsite-block messages from the collector"
+  [cat-stream buf-stream]
+
+  (mg/go-off
+    (loop [msg (mg/<!? cat-stream)]
+      (su/dbg "cbh: got cat msg: " msg)
+      (when msg
+        (let [p (ms/try-put! buf-stream msg 0 ::timedout)]
+          (su/dbg "cbh: put realized? - " (md/realized? p) ", val: " @p)
+          (if @p
+            (su/dbg "cbh: put msg on buf-stream: " msg)
+            (su/dbg "cbh: dropped msg buf-stream full. " msg))            ;; only put onto buf-stream if it isn't full
+        (recur (mg/<!? cat-stream)))))
+  buf-stream
+  #_(dosync
+    (let [path-processor-futures (:onsite-path-processor @bpc/bp-state)]
+      (if (< (count path-processor-futures) 2)
+        (alter bpc/bp-state update :onsite-path-processor (conj (md/deferred (path-block-handler))))
+        nil)))))
+
+(defn root-catalog-block-handler
+  ""
   [msg]
 
-  (dosync
-    (let [path-processor-future (:onsite-path-processor @bpc/bp-state)]
-      (if (or (nil? path-processor-future)
-              (future-done? path-processor-future))
-        (alter bpc/bp-state assoc :onsite-path-processor (future (path-block-handler)))
-        nil))))
+  (let [{:keys [path-block dir-info-atom]} msg]
+    (su/dbg "root-catalog-block-handler: " path-block)
+    (dosync (alter bpc/bp-state assoc :catalog-update path-block))))
 
-(defn root-path-monitor
+#_(defn root-path-event-handler
   "Handles notifications for new root-paths that are ready for processing.
 
    Params:
    stream     A manifold stream that has subscribed to the event-bus for :root-path messages
    handler-fn (optional - default onsite-block-monitor) Overridable function to handle the root-path msg"
   ([stream]
-   (root-path-monitor stream onsite-block-monitor))
+   (root-path-event-handler stream catalog-block-handler))
 
   ([stream handler-fn]
 
-   (a/go-loop []
-     (when-let [deferred-root (ms/take! stream)]
-       (handler-fn @deferred-root)
-       (recur)))))
+   (mg/go-off
+     (su/dbg "setting root-path-handler loop")
+     (loop []
+       (when-let [deferred-root (mg/<!? stream)]
+         (su/dbg "got deferred-root: " deferred-root)
+         (handler-fn deferred-root)
+         (recur))))))
 
 (defn- start-default
    "Standard implementation of start, can be overridden in test by passing customized body"
    []
 
-  (-> (:bus @ch/channels)
+  ;  (ch/m-subscribe :root-path)
+  (ch/m-sub-monitor :root-path root-catalog-block-handler)
+  (let [cat-stream (ch/m-subscribe :catalog-add-block)]
+    (->> (ms/stream 2)
+         (catalog-block-handler cat-stream)
+         (path-block-handler2)))
+  #_(-> (:bus @ch/channels)
       (mb/subscribe :root-path)
-      (root-path-monitor))
-  #_(let [onsite-ch (ch/new-channel! :onsite-block-chan bpc/stop-key)
-        onsite-pub (ch/new-publisher! :onsite-block-chan :topic)
-        offsite-ch (ch/new-channel! :offsite-block-chan bpc/stop-key)
-        offsite-pub (ch/new-publisher! :offsite-block-chan :topic)]
-    (-> (:bus @ch/channels)
-        (mb/subscribe :root-path)
-        (root-path-monitor))
-    ;(ch/subscribe onsite-pub :root-block onsite-block-monitor)
-    ;(bpof/offsite-block-listener)
-    ))
+      (root-path-event-handler)))
 
 (defn start
-   "Start processing block-data from the queue
+  "Start processing block-data from the queue
 
-    Params:
-    start-impl        (optional - default is (start-default) can be overridden in tests"
-   ([start-impl]
+   Params:
+   start-impl        (optional - default is (start-default) can be overridden in tests"
+  ([]
+   (start start-default))
 
-    (when-not (:started @bpc/bp-state)
-      ;(su/dbg "Starting bp-core with impl fn: " start-impl)
-       (dosync (alter bpc/bp-state assoc :started true :onsite-path-processor nil))
-       (start-impl)))
+  ([start-impl]
 
-   ([]
-    (start start-default)))
+   (when-not (:started @bpc/bp-state)
+     (su/dbg "Starting bp-onsite with impl fn: " start-impl)
+     ;     (bpc/bp-reset! {:started true :onsite-path-processor nil})
+     (bpc/start)
+     ;     (dosync (alter bpc/bp-state assoc :started true :onsite-path-processor nil))
+     (start-impl))))
 
 (defn- stop-default
    "Standard implementation of stop, can be overridden int est by passing customized body"
@@ -245,12 +258,12 @@
 
     Params:
     stop-impl          (optional - default is (stop-default) can be overridden in tests"
-   ([stop-impl]
+  ([]
+
+   (stop stop-default))
+
+  ([stop-impl]
 
     (when (:started @bpc/bp-state)
        (dosync (alter bpc/bp-state assoc :started false))
-       (stop-impl)))
-
-   ([]
-
-    (stop stop-default)))
+       (stop-impl))))

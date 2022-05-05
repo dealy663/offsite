@@ -9,7 +9,10 @@
     [offsite-cli.db.db-core :as dbc]
     [xtdb.api :as xt]
     [clojure.tools.logging :as log]
-    [clojure.string :as str])
+    [clojure.string :as str]
+    [offsite-cli.system-utils :as su]
+    [offsite-cli.channels :as ch]
+    [offsite-cli.init :as init])
   (:import (java.util UUID)))
 
 
@@ -22,6 +25,7 @@
    Returns an #inst of the DB TX"
   [onsite-block]
 
+  (su/dbg "add-path-block!: adding onsite block - " onsite-block)
   (dbc/easy-ingest! [onsite-block]))
 
 (defn catalog-complete!
@@ -33,45 +37,63 @@
 
   (when-let [backup (dbc/get-backup! backup-id)]
     (if (:in-progress backup)
-      (dbc/easy-ingest! [(assoc backup :catalog-state :complete)])
+      (do
+        (dbc/easy-ingest! [(assoc backup :catalog-state :complete)])
+        (swap! init/client-state assoc :catalog-state :complete))
       (log/warn "Cannot update the state of a backup that is no longer in progress"))))
+
+;; this won't work for anything more complicated than simply anding additional clauses to the where
+;; More advanced rules (e.g. not, or, predicate etc)
+(defn add-where-clauses
+  [entity-v where clause-map]
+
+  (into where (map #(into [entity-v] %) clause-map)))
 
 (defn get-all-path-blocks
   "Retrieves a group of path-blocks
 
    Params:
-   backup-id   The ID of the backup in progress
-   count       (optional - default 1) The number of path-blocks to retrieve from DB,
-               a count of -1 will return all path blocks (be careful about memory usage)
+   backup-id        The ID of the backup in progress
+   where-clauses    (optional - default nil) Additional filtering parameters for the query's where clause,
+                    use a map collection for the where clauses
 
    Returns a seq of path-blocks"
-  ([backup-id count]
+  ([backup-id where-clauses]
 
-   (let [all-paths-set (xt/q
+   (su/dbg "get-all-path-blocks where-clauses: " where-clauses)
+   (let [query '[[e :backup-id backup-id]
+                 [e :data-type :path-block]]
+         query (add-where-clauses 'e query where-clauses)
+         _ (su/dbg "all-path-blocks query ------> " query)
+         all-paths-set (xt/q
                          (xt/db dbc/db-node*)
-                         '{:find  [(pull e [*])]
-                           :where [[e :backup-id backup-id]
-                                   [e :data-type :path-block]]})]
-     (if (> 0 count)
-       all-paths-set
-       (take count all-paths-set))))
+                         (assoc '{:find  [(pull e [*])]}
+                                :where query))]
+     all-paths-set))
 
   ([backup-id]
-   (get-all-path-blocks backup-id 1)))
+   (get-all-path-blocks backup-id nil)))
 
 (defn get-root-path-blocks
-  "Returns a sequence of root path-blocks for a given backup
+  "Returns a sequence of root path-blocks for a given backup, this function uses the base query:
+   [[e :backup-id backup-id]
+    [e :data-type :path-block]
+    [e :parent-id nil]]
 
   Params:
   backup-id       The ID of the backup to query"
-  [backup-id]
+  ([backup-id]
+   (get-root-path-blocks backup-id nil))
 
-  (xt/q
-    (xt/db dbc/db-node*)
-    '{:find [(pull e [*])]
-      :where [[e :backup-id backup-id]
-              [e :data-type :path-block]
-              [e :parent-id nil]]}))
+  ([backup-id where-clauses]
+
+   (let [base-query '[[e :backup-id backup-id]
+                      [e :data-type :path-block]
+                      [e :parent-id nil]]
+         query      (add-where-clauses 'e base-query where-clauses)]
+     (xt/q
+       (xt/db dbc/db-node*)
+       (assoc '{:find [(pull e [*])]} :where query)))))
 
 (defn get-child-path-blocks
   "Returns a sequence of path-blocks that are children of the queried path-block
@@ -127,11 +149,17 @@
 
    Returns a lazy iterator-seq of path-blocks"
   ([backup-id]
-   (xt/open-q (xt/db dbc/db-node*)
-              '{:find  [(pull e [*])]
-                :where [[e :backup-id backup-id]
-                        [e :data-type :path-block]]
-                :in    [backup-id]} backup-id)))
+   (get-path-blocks-lazy backup-id nil))
+
+  ([backup-id add-query]
+   (let [base-query '[[e :backup-id backup-id]
+                      [e :data-type :path-block]
+                      #_[e :state :catalog]]
+         query (add-where-clauses 'e base-query add-query)]
+     (xt/open-q (xt/db dbc/db-node*)
+                (assoc '{:find [(pull e [*])]
+                         :in   [backup-id]} :where query)
+                 backup-id))))
 
 (defn find-path-block
   "Fetches a path-block by navigating through the DB following the path defined by parent-id references

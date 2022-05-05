@@ -13,31 +13,29 @@
             [offsite-cli.system-utils :as su]
             [offsite-cli.remote.os-service :as svc]
             [offsite-cli.remote.os-node :as node]
-            [clojure.tools.logging :as log])
+            [clojure.tools.logging :as log]
+            [offsite-cli.channels :as ch]
+            [mount.core :as mount])
   (:import (java.io ByteArrayOutputStream)
            (org.apache.commons.lang3 NotImplementedException)))
 
 (def max-block-chunk -1)                                    ;; A negative value means to read the whole file
 (def stop-key :stop-bp)
-(def bp-state (ref {:started        false
-                    :halt           false
-                    :offsite-nodes  []                      ;; a sequence of node connections and response statistics
-                    :onsite-block-q []}))
+(def bp-counters-empty {:catalog-block-count 0
+                        :onsite-block-count  0})
+(def bp-counters (atom bp-counters-empty))
+(def bp-state-empty {:started                false
+                     :halt                   false
+                     :onsite-path-processor  []
+                     :catalog-update         nil
+                     :offsite-nodes          []               ;; a sequence of node connections and response statistics
+                     :onsite-block-q         []})
+(def bp-state (ref bp-state-empty))
 
-(declare start stop split encrypt broadcast)
-
-;(defn add-block [state event]
-;  "Adds a block to the processing channel
-;
-;   Params:
-;   state     The state of the bp-fsm
-;   event     The event that triggered this fn call"
-;
-;  (println "handling unprocessed block: " state " event: " event)
-;  ;  (a/>!! chan (:block event))
-;  ;(dosync
-;  ;  (alter bp-data update-in [:queue] conj block))
-;  )
+(declare start stop split encrypt broadcast bp-reset!)
+;(mount/defstate ^{:on-reload :noop} bp-state
+;                :start (start)
+;                :stop (stop))
 
 (defn get-checksum
   "Creates a checksum on one of the following types of messages:
@@ -110,12 +108,42 @@
           (db/easy-ingest! state)
           state))))
 
+(defn event-handler-fns
+  "Handles Manifold bus events
+
+  Params:
+  event-fns     A sequence of functions which take a single event parameter and execute custom logic"
+  [& event-fns]
+
+  (fn [event]
+    (mapv #(% event) event-fns)))
+
+(defn bp-reset!
+  "Reset the state bindings for the block-processor
+
+  Params:
+  state-init-map     (optional - default nil) Map of associations to initialize the bp-state ref with"
+  ([]
+
+   (bp-reset! nil))
+
+  ([state-init-map]
+
+   (reset! bp-counters bp-counters-empty)
+   (dosync (ref-set bp-state (into bp-state-empty state-init-map)))
+   bp-state))
 
 
-;(defn add-block [backup-block]
-;  "Add a backup block to the block-data queue
-;
-;  params:
-;  backup-block     A block of data for backup"
-;  (alter bp-data update-in :queue conj backup-block))
+(defn start
+  []
 
+  (let [bps (bp-reset! {:started true :onsite-path-processor nil})]
+    ;; create a monitor for catalog-state events
+    (ch/m-sub-monitor :catalog-add-block (fn [_] (swap! bp-counters update :catalog-block-count inc)))
+    bps))
+
+(defn stop
+  []
+
+  ;; no action yet
+  )

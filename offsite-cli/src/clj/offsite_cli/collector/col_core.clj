@@ -11,17 +11,20 @@
             [clojure.string :as str]
             [babashka.fs :as fs]
             [manifold.bus :as mb]
-            [manifold.stream :as ms]))
+            [manifold.stream :as ms]
+            [manifold.go-off :as mg]
+            [offsite-cli.init :as init]))
 
 (def stop-key :stop-collector)
 
-(def collector-state (ref {:files         []
-                           :started      false
-                           :backup-count 0
-                           :push-count   0
-                           :total-bytes  0
-                           :backup-paths []
-                           :push-bytes   0}))
+(def collector-state (ref {:files            []
+                           :started         false
+                           :backup-count    0
+                           :push-count      0
+                           :total-bytes     0
+                           :backup-paths    []
+                           :catalog-state   nil
+                           :push-bytes      0}))
 
 (def events #{:col-progress :col-complete})
 (declare start stop get-backup-info)
@@ -50,6 +53,7 @@
       :root-path (.getCanonicalPath file-dir-path)
       :orig-path (.getPath file-dir-path)
       :data-type :path-block
+      :state     :catalog
       :backup-id (:backup-id (get-backup-info))
       ;:file-dir
       :parent-id (if (some? parent-block-id) parent-block-id)
@@ -107,7 +111,9 @@
           (swap! dir-info-atom update :parent-ids conj (:xt/id path-block))
           (swap! dir-info-atom update :dir-count inc)
           (when (nil? parent-id)
-            (ch/m-publish :root-path path-block))
+            (su/dbg "pre-visit-dir-fn: publishing root-path: " path-block)
+            (ch/m-publish :root-path {:path-block path-block :dir-info-atom dir-info-atom}))
+          (ch/m-publish :catalog-add-block (:orig-path path-block))
           (ch/m-publish :col-progress (dissoc @dir-info-atom :parent-ids))
           :continue)
         (do
@@ -132,10 +138,15 @@
     (let [file (.toFile path)
           file-path (.getCanonicalPath file)]
       (if (included? path)
-        (let [path-block (create-path-block file (-> @dir-info-atom :parent-ids first))]
+        (let [parent-id  (-> @dir-info-atom :parent-ids first)
+              path-block (create-path-block file parent-id)]
           (dbc/add-path-block! path-block)
           (swap! dir-info-atom update :byte-count + (fs/size file))
           (swap! dir-info-atom update :file-count inc)
+          (when (nil? parent-id)
+            (su/dbg "visit-file-fn: publishing root-path: " path-block)
+            (ch/m-publish :root-path {:path-block path-block :dir-info-atom dir-info-atom}))
+          (ch/m-publish :catalog-add-block (:orig-path path-block))
           :continue)
         (do
           (ch/m-publish :walk-tree [:excluded-file path])
@@ -158,6 +169,10 @@
         visit-file      (visit-file-fn path-info-atom)]
     (fs/walk-file-tree root-file-dir {:pre-visit-dir pre-visit-dir :post-visit-dir post-visit-dir :visit-file visit-file})
     (ch/m-publish :walk-tree :complete)
+
+    (let [bus (:bus @ch/channels)]
+      (mapv ms/close! (mb/downstream bus :root-path))
+      (mapv ms/close! (mb/downstream bus :catalog-add-block)))
     @path-info-atom))
 
 (defn get-backup-info
@@ -178,10 +193,11 @@
 
   [stream handler-fn]
 
-  (a/go-loop []
-    (when-let [deferred-event (ms/take! stream)]
-      (handler-fn @deferred-event)
-      (recur))))
+  (mg/go-off
+    (loop []
+      (when-let [deferred-event (mg/<!? stream)]
+        (handler-fn @deferred-event)
+        (recur)))))
 
 (defn start
   "Start process to wait for new paths from which to create onsite blocks.
@@ -196,6 +212,7 @@
    #_(su/dbg "Starting Collector started: " (:started @collector-state))
    (when-not (:started @collector-state)
      (ch/m-publish :col-msg (str "Starting collector, root paths: " backup-root-paths))
+     (swap! init/client-state assoc :catalog-state :started)
      (when-not (nil? (:backup-paths @collector-state))
        (dosync (alter collector-state assoc :backup-paths nil :total-bytes 0)))
 
@@ -222,6 +239,7 @@
                                    :file-count  (+ file-count  (:file-count acc))
                                    :byte-count (+ byte-count (:byte-count acc))))))
              (ch/m-publish :col-finished acc)))
+         (mapv #(ms/close! %) (-> @channels :bus (mb/downstream :col-msg)))
          (dbc/catalog-complete! (:backup-id backup-info)))
        (catch Exception e
          (log/error "Collector stopped with exception: " (.getMessage e))

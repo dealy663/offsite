@@ -5,14 +5,15 @@
      :doc          "Processor for offsite blocks"
      :no-doc       true
      :project      "offsite"}
-   (:require [offsite-cli.system-utils :as su]
-             [offsite-cli.remote.os-service :as svc]
-             [offsite-cli.block-processor.bp-core :as bpc]
-             [offsite-cli.remote.os-node :as node]
-             [clojure.java.io :as io]
-             [offsite-cli.db.db-core :as db]
-             [clojure.core.async :as a]
-             [offsite-cli.channels :as ch])
+  (:require [offsite-cli.system-utils :as su]
+            [offsite-cli.remote.os-service :as svc]
+            [offsite-cli.block-processor.bp-core :as bpc]
+            [offsite-cli.remote.os-node :as node]
+            [clojure.java.io :as io]
+            [offsite-cli.db.db-core :as db]
+            [clojure.core.async :as a]
+            [offsite-cli.channels :as ch]
+            [manifold.bus :as mb])
    (:import (java.io ByteArrayOutputStream)))
 
 (defn update-ofs-block-state
@@ -107,20 +108,33 @@
        (assoc prepped-block :input-stream (io/input-stream file-dir)
                             :prep-state   :opened))))
 
-(defn- offsite-block-handler
-   ""
-   [offsite-block]
+(defn onsite-block-handler
+  "Converts an onsite block to an offsite block. The block is then broadcast to supporting nodes
+  and the DB is updated.
 
-   (su/dbg (str "OfBL: received offsite block: " (:root-dir offsite-block)))
-   (-> offsite-block
-       ;(get-block-state!)
+  Params:
+  onsite-block     An onsite block that has been retrieved from the backup catalog
 
-       ;; remember that you must indicate the previous block in the backup chain, sub-node, parent dir, previous file etc
-       (prepare-offsite-block!)
-       (split)                                       ;; This is where a payload is added
-       (encrypt)
-       (broadcast!)
-       (db/easy-ingest!)))
+  Returns the result of the DB update after the block has been broadcast"
+  [onsite-block]
+
+  (su/dbg (str "onsite-blocker-handler: " (:root-path onsite-block)))
+  (when-let [file-dir (:file-dir onsite-block)]
+    (with-open [in-stream (io/input-stream file-dir)]
+      (let [offsite-block (assoc onsite-block :input-stream in-stream
+                                              :prep-state :opened)]
+        (-> offsite-block
+            ;(get-block-state!)
+
+            ;; remember that you must indicate the previous block in the backup chain, sub-node, parent dir, previous file etc
+            (prepare-offsite-block!)
+            ;(split)                                       ;; This is where a payload is added
+            ;(encrypt)
+            ;(broadcast!)
+            #_(db/easy-ingest!))
+        (su/dbg "exiting onsite-block-handler")
+        (ch/m-publish :offsite-msg {:message "Created offsite block"
+                                    :data    offsite-block})))))
 
 (defn offsite-block-listener
    "Starts a thread which listens to the offsite-block channel for blocks that are
@@ -137,4 +151,4 @@
                 (offsite-block-handler-impl offsite-block))))))
 
    ([]
-    (offsite-block-listener offsite-block-handler)))
+    (offsite-block-listener onsite-block-handler)))

@@ -3,9 +3,13 @@
             [xtdb.api :as xt]
             [mount.core :refer [defstate]]
             [offsite-cli.system-utils :as su]
+            [offsite-cli.db.connection-pool :as cp]
             [offsite-cli.config :refer [env]]
-            [clojure.tools.logging :as log])
-  (:import (java.util UUID)))
+            [clojure.tools.logging :as log]
+            [clojure.spec.alpha :as s])
+  (:import (java.util UUID Date)))
+
+(declare db-node*)
 
 (defstate db-node*
   :start (doto (xt/start-node (:xtdb-config env))
@@ -18,6 +22,10 @@
 
 (defn stop-db! [node]
   (.close node))
+
+(s/def ::tx-id int?)
+(s/def ::tx-time #(instance? Date %))
+(s/def ::xt-timestamp (s/keys :req [:xtdb.api/tx-time :xtdb.api/tx-id]))
 
 (defn get-entity!
   "Fetch a full entity doc from XTDB by its ID
@@ -35,13 +43,22 @@
   doc      A vector of documents to add to the XTDB
 
   Returns the #inst timestamp of the documents"
-  [docs]
+  ([docs]
+   ;(cp/with-cp-node [db-node* (cp/get-node)])
+   (easy-ingest! docs db-node*))
 
-  (xt/await-tx
-    db-node*
-    (xt/submit-tx db-node*
-                  (vec (for [doc docs]
-                         [::xt/put doc])))))
+  ([docs node]
+
+   (xt/await-tx
+     node
+     (xt/submit-tx node
+                   (vec (for [doc docs]
+                          [::xt/put doc]))))))
+
+(s/fdef easy-ingest!
+        :args (s/coll-of map?)
+
+        :ret ::xt-timestamp)
 
 (defn get-last-backup!
   "Returns the DB doc for the last or current backup."

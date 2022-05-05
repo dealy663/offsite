@@ -136,7 +136,7 @@
             child-paths     (.listFiles music-dir)]
         (doseq [sub-dir child-paths]
           (dbc/add-path-block! (col/create-path-block (.getPath sub-dir) music-dir-block)))
-        (with-open [child-path-blocks (dbc/get-path-blocks-lazy backup-id)]
+        (with-open [child-path-blocks (dbc/get-path-blocks-lazy backup-id {:state :catalog})]
           (doseq [path-block (iterator-seq  child-path-blocks)]
             ;(su/dbg "got child path blocks: " path-block)
             (when (= (:xt/id music-dir-block) (:parent-id path-block))

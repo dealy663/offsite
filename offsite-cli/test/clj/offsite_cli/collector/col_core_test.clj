@@ -174,7 +174,7 @@
   [path]
 
   (reset! dir-info (assoc dir-info-empty :root            path
-                                         :all-path-blocks (dbc/get-all-path-blocks (:backup-id col/get-backup-info) -1)))
+                                         :all-path-blocks (dbc/get-all-path-blocks (:backup-id col/get-backup-info))))
   #_(su/dbg "got all-path-blocks: " (:all-path-blocks @dir-info))
   (let [file-dir (if (string? path) (fs/file path) path)]
     (fs/walk-file-tree file-dir {:pre-visit-dir pre-visit-dir :visit-file visit-file})
@@ -189,7 +189,7 @@
   [root-path]
 
   (let [dir-info (atom (assoc dir-info-empty :root            root-path
-                                             :all-path-blocks (dbc/get-all-path-blocks (:backup-id col/get-backup-info) -1)))]
+                                             :all-path-blocks (dbc/get-all-path-blocks (:backup-id col/get-backup-info))))]
     (let [file-dir (if (string? root-path) (fs/file root-path) root-path)]
       (fs/walk-file-tree file-dir {:pre-visit-dir (pre-visit-dir-fn dir-info)
                                  :visit-file (visit-file-fn dir-info)})

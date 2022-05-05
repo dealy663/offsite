@@ -16,8 +16,10 @@
                  [json-html "0.4.7"]
                  [manifold "0.2.3"]
                  ;                 [com.xtdb/xtdb-core "1.20.0-DME-SNAPSHOT"]
-                 [com.xtdb/xtdb-core "dev-SNAPSHOT"]        ;locally built versions from xtdb fork
-                 [com.xtdb/xtdb-lmdb "dev-SNAPSHOT"]        ;using lwjgl 3.3.0
+                 [com.xtdb/xtdb-core "1.21.0-beta3"]
+                 [com.xtdb/xtdb-rocksdb "1.21.0-beta3"]
+                 ;[com.xtdb/xtdb-core "dev-SNAPSHOT"]        ;locally built versions from xtdb fork
+                 ;[com.xtdb/xtdb-lmdb "dev-SNAPSHOT"]        ;using lwjgl 3.3.0
                  ;[com.xtdb/xtdb-test "1.20.0-DME-SNAPSHOT"]
                  ;[com.xtdb/xtdb-core "1.19.0-beta1"]
                  ;[com.xtdb/xtdb-rocksdb "1.19.0-beta1"]

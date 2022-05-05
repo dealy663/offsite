@@ -7,7 +7,12 @@
             [offsite-cli.db.db-core :as db]
             [offsite-cli.db.dev-test]
             [offsite-cli.channels :as ch]
-            [manifold.bus :as mb]))
+            [offsite-cli.block-processor.onsite :as bpo]
+            [manifold.bus :as mb]
+            [manifold.stream :as ms]
+            [manifold.go-off :as mg]
+            [clojure.tools.logging :as log]
+            [offsite-cli.db.catalog :as dbc]))
 
 (defn validate-ofs-block
   ""
@@ -24,16 +29,53 @@
     (is (= true (< dur 5000))
         (str "Duration: " dur " (ms) to write the block to DB was greater than 5 sec."))))
 
+;(defn event-handler
+;  "Handles event notifications
+;
+;   Params:
+;   stream     A manifold stream that has subscribed to the event-bus for :root-path messages
+;   handler-fn Function to handle the event"
+;  [stream handler-fn]
+;
+;  (mg/go-off
+;    (su/dbg "setting event-handler loop")
+;    (loop []
+;      (when-let [deferred (mg/<!? stream)]
+;        (su/dbg "got an event: " deferred)
+;        (handler-fn deferred)
+;        #_(try
+;          (su/dbg "got an event: " deferred)
+;          (handler-fn deferred)
+;          (catch Exception e (log/error (str "Got exception while handling event: " (.getMessage e)))))
+;        (recur)))))
+
+;(defn offsite-msg-handler
+;  [msg]
+;
+;  (su/dbg "Got offsite msg: " msg))
+
+(defn get-all-onsite
+  []
+
+  (dbc/get-all-path-blocks (:backup-id (db/get-last-backup!)) {:state :onsite}))
+
 (defn start-collector
   []
 
-  (col/event-monitor (ch/m-subscribe :col-msg) #(su/dbg %1))
-  (col/start (:backup-paths @init/backup-paths)))
+  (init/reset)
+  (ch/m-sub-monitor :col-msg #(su/dbg "Got collector msg: " %))
+  (ch/m-sub-monitor :offsite-msg #(su/dbg (:message %) ": " (-> % :data :orig-path)))
+  (bpo/start)
+  (col/start (-> @init/backup-paths :backup-paths (get 2) vector))
+  #_(col/start (:backup-paths @init/backup-paths)))
 
 (defn reset-db!
   []
 
   (col/stop)
+  (bpo/stop)
   ;  (ch/m-drop-all-subscribers)
+  (doseq [streams (-> @ch/channels :bus mb/topic->subscribers vals)]
+    (mapv #(ms/close! %) streams))
   (#'offsite-cli.db.dev-test/evict-backup (:backup-id (db/get-last-backup!))))
 
