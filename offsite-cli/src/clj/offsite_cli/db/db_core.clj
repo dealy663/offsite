@@ -3,7 +3,6 @@
             [xtdb.api :as xt]
             [mount.core :refer [defstate]]
             [offsite-cli.system-utils :as su]
-            [offsite-cli.db.connection-pool :as cp]
             [offsite-cli.config :refer [env]]
             [clojure.tools.logging :as log]
             [clojure.spec.alpha :as s])

@@ -170,9 +170,6 @@
     (fs/walk-file-tree root-file-dir {:pre-visit-dir pre-visit-dir :post-visit-dir post-visit-dir :visit-file visit-file})
     (ch/m-publish :walk-tree :complete)
 
-    (let [bus (:bus @ch/channels)]
-      (mapv ms/close! (mb/downstream bus :root-path))
-      (mapv ms/close! (mb/downstream bus :catalog-add-block)))
     @path-info-atom))
 
 (defn get-backup-info
@@ -198,6 +195,15 @@
       (when-let [deferred-event (mg/<!? stream)]
         (handler-fn @deferred-event)
         (recur)))))
+
+(defn- close-collector-channels
+  ""
+  []
+
+  (let [bus (:bus @ch/channels)]
+    (mapv ms/close! (mb/downstream bus :root-path))
+    (mapv ms/close! (mb/downstream bus :catalog-add-block))
+    (mapv ms/close! (mb/downstream bus :col-msg))))
 
 (defn start
   "Start process to wait for new paths from which to create onsite blocks.
@@ -239,7 +245,7 @@
                                    :file-count  (+ file-count  (:file-count acc))
                                    :byte-count (+ byte-count (:byte-count acc))))))
              (ch/m-publish :col-finished acc)))
-         (mapv #(ms/close! %) (-> @channels :bus (mb/downstream :col-msg)))
+         (close-collector-channels)
          (dbc/catalog-complete! (:backup-id backup-info)))
        (catch Exception e
          (log/error "Collector stopped with exception: " (.getMessage e))

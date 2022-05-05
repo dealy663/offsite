@@ -66,8 +66,9 @@
   (ch/m-sub-monitor :col-msg #(su/dbg "Got collector msg: " %))
   (ch/m-sub-monitor :offsite-msg #(su/dbg (:message %) ": " (-> % :data :orig-path)))
   (bpo/start)
-  (col/start (-> @init/backup-paths :backup-paths (get 2) vector))
-  #_(col/start (:backup-paths @init/backup-paths)))
+  ;(col/start (->> @init/backup-paths :backup-paths (take 2)))
+  ;(col/start (-> @init/backup-paths :backup-paths (get 2) vector))
+  (col/start (:backup-paths @init/backup-paths)))
 
 (defn reset-db!
   []

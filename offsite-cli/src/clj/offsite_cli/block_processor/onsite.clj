@@ -167,20 +167,28 @@
                (process-block)))))))
 
 (defn catalog-block-handler
-  "Monitor function for onsite-block messages from the collector"
+  "Monitor function for onsite-block messages from the collector, transfers the message to
+  buf-stream as long as buf-stream isn't full, otherwise drops message.
+
+  Params:
+  cat-stream     Input stream of catalog messages
+  buf-stream     Output stream buffer which should have a buf size of 2
+
+  Returns the output stream"
   [cat-stream buf-stream]
 
   (mg/go-off
     (loop [msg (mg/<!? cat-stream)]
       (su/dbg "cbh: got cat msg: " msg)
-      (when msg
+      (if msg
         (let [p (ms/try-put! buf-stream msg 0 ::timedout)]
           (su/dbg "cbh: put realized? - " (md/realized? p) ", val: " @p)
           (if @p
             (su/dbg "cbh: put msg on buf-stream: " msg)
-            (su/dbg "cbh: dropped msg buf-stream full. " msg))            ;; only put onto buf-stream if it isn't full
-        (recur (mg/<!? cat-stream)))))
-  buf-stream
+            (su/dbg "cbh: dropped msg buf-stream full. " msg)) ;; only put onto buf-stream if it isn't full
+          (recur (mg/<!? cat-stream)))
+        (log/info "catalog-block-handler: exit")))
+    buf-stream
   #_(dosync
     (let [path-processor-futures (:onsite-path-processor @bpc/bp-state)]
       (if (< (count path-processor-futures) 2)
