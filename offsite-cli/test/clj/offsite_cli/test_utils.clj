@@ -67,7 +67,7 @@
   (ch/m-sub-monitor :offsite-msg #(su/dbg (:message %) ": " (-> % :data :orig-path)))
   (bpo/start)
   ;(col/start (->> @init/backup-paths :backup-paths (take 2)))
-  ;(col/start (-> @init/backup-paths :backup-paths (get 2) vector))
+  ;(col/start (-> @init/backup-paths :backup-paths (get 1) vector))
   (col/start (:backup-paths @init/backup-paths)))
 
 (defn reset-db!

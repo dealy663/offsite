@@ -25,7 +25,7 @@
    Returns an #inst of the DB TX"
   [onsite-block]
 
-  (su/dbg "add-path-block!: adding onsite block - " onsite-block)
+  ;(su/dbg "add-path-block!: adding onsite block - " onsite-block)
   (dbc/easy-ingest! [onsite-block]))
 
 (defn catalog-complete!

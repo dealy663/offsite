@@ -113,6 +113,7 @@
           (when (nil? parent-id)
             (su/dbg "pre-visit-dir-fn: publishing root-path: " path-block)
             (ch/m-publish :root-path {:path-block path-block :dir-info-atom dir-info-atom}))
+          ;(su/dbg "pre-visit-dir-fn: publishing :catalog-add-block")
           (ch/m-publish :catalog-add-block (:orig-path path-block))
           (ch/m-publish :col-progress (dissoc @dir-info-atom :parent-ids))
           :continue)
@@ -146,6 +147,7 @@
           (when (nil? parent-id)
             (su/dbg "visit-file-fn: publishing root-path: " path-block)
             (ch/m-publish :root-path {:path-block path-block :dir-info-atom dir-info-atom}))
+          ;(su/dbg "visit-file-fn: publishing :catalog-add-block")
           (ch/m-publish :catalog-add-block (:orig-path path-block))
           :continue)
         (do

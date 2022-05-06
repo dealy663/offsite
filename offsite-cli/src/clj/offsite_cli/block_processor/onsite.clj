@@ -158,13 +158,20 @@
   [buf-stream]
 
   (mg/go-off
-    (let [msg (mg/<!? buf-stream)]
-      (with-open [path-seq-itr (dbc/get-path-blocks-lazy (:backup-id (col/get-backup-info)) {:state :catalog})]
-        (doseq [path-block (iterator-seq path-seq-itr)]
-          (su/dbg "path-block-handler: " (first path-block))
-          (->> path-block
-               first
-               (process-block)))))))
+    (su/dbg "path-block-handler2: start")
+    (loop [msg            (mg/<!? buf-stream)
+           blocks-handled 0]
+      (if msg
+        (do
+          ;(su/dbg "path-block-handler2: got msg event: " msg)
+          (with-open [path-seq-itr (dbc/get-path-blocks-lazy (:backup-id (col/get-backup-info)) {:state :catalog})]
+            (doseq [path-block (iterator-seq path-seq-itr)]
+              (su/dbg "path-block-handler2: " (-> path-block first :orig-path))
+              (->> path-block
+                   first
+                   (process-block))))
+          (recur (mg/<!? buf-stream) (inc blocks-handled)))
+        (su/dbg "path-block-handler2: exit, blocks-handled " blocks-handled)))))
 
 (defn catalog-block-handler
   "Monitor function for onsite-block messages from the collector, transfers the message to
@@ -179,21 +186,18 @@
 
   (mg/go-off
     (loop [msg (mg/<!? cat-stream)]
-      (su/dbg "cbh: got cat msg: " msg)
+      ;(su/dbg "cbh: got cat msg: " msg)
       (if msg
         (let [p (ms/try-put! buf-stream msg 0 ::timedout)]
-          (su/dbg "cbh: put realized? - " (md/realized? p) ", val: " @p)
+          ;          (su/dbg "cbh: put realized? - " (md/realized? p) ", val: " @p)
           (if @p
             (su/dbg "cbh: put msg on buf-stream: " msg)
             (su/dbg "cbh: dropped msg buf-stream full. " msg)) ;; only put onto buf-stream if it isn't full
           (recur (mg/<!? cat-stream)))
-        (log/info "catalog-block-handler: exit")))
-    buf-stream
-  #_(dosync
-    (let [path-processor-futures (:onsite-path-processor @bpc/bp-state)]
-      (if (< (count path-processor-futures) 2)
-        (alter bpc/bp-state update :onsite-path-processor (conj (md/deferred (path-block-handler))))
-        nil)))))
+        (do
+          (ms/close! buf-stream)
+          (log/info "catalog-block-handler: exit")))))
+  buf-stream)
 
 (defn root-catalog-block-handler
   ""
@@ -228,10 +232,10 @@
 
   ;  (ch/m-subscribe :root-path)
   (ch/m-sub-monitor :root-path root-catalog-block-handler)
-  (let [cat-stream (ch/m-subscribe :catalog-add-block)]
-    (->> (ms/stream 2)
-         (catalog-block-handler cat-stream)
-         (path-block-handler2)))
+  (let [cat-stream (ch/m-subscribe :catalog-add-block)
+        out-stream (ms/stream 2)]
+    (catalog-block-handler cat-stream out-stream)
+    (path-block-handler2 out-stream))
   #_(-> (:bus @ch/channels)
       (mb/subscribe :root-path)
       (root-path-event-handler)))
