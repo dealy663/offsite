@@ -71,9 +71,42 @@
 
    (.toLowerCase (str (:user-uuid (offsite-user-id)) "-" (hostname))))
 
-(defmacro dbg [& messages]
-   `(log/debug "\n\t***------->>>" (str ~@messages)))
+;(defmacro debug [& messages]
+;   `(log/debug "\n\t***------->>>" (str ~@messages)))
 
+(defn log-symbol
+   [level]
+
+   (println "ll: " level)
+   '(symbol (str "clojure.tools.logging/" (name level))))
+
+(defmacro log-msg [level messages]
+   `(clojure.tools.logging/logf ~level "\n\t***------->>> %s" (str ~@messages)))
+
+(defmacro debug [& messages]
+   `(log-msg :debug ~messages))
+
+(defmacro info [& messages]
+   `(log-msg :info ~messages))
+
+(defmacro warn [& messages]
+   `(log-msg :warn ~messages))
+
+(defmacro error [& messages]
+   `(log-msg :error ~messages))
+
+(defmacro payload-gen
+   "Returns a function that will generate a payload map for the supplied payload-key context. It is expected
+   that this will be called within a let binding so that payloads can easily be generated for publishing.
+
+   Ex.    (let [payload (payload-gen :fn-name)]
+            ...
+            (ch/m-publish :msg (payload (str value msg))))
+
+   Params:
+   payload-key    The context key which will function as a second topic->event discriminator in the :msg event handler"
+   [payload-key]
+   `(fn [p#] {:event-type ~payload-key :payload p#}))
 
 (defn get-client-info
    "Returns the client info map.

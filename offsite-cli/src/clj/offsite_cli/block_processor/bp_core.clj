@@ -15,7 +15,8 @@
             [offsite-cli.remote.os-node :as node]
             [clojure.tools.logging :as log]
             [offsite-cli.channels :as ch]
-            [mount.core :as mount])
+            [mount.core :as mount]
+            [offsite-cli.init :as init])
   (:import (java.io ByteArrayOutputStream)
            (org.apache.commons.lang3 NotImplementedException)))
 
@@ -31,6 +32,7 @@
                      :offsite-nodes          []               ;; a sequence of node connections and response statistics
                      :onsite-block-q         []})
 (def bp-state (ref bp-state-empty))
+(swap! init/client-state update :service-keys conj :onsite :offsite)
 
 (declare start stop split encrypt broadcast bp-reset!)
 ;(mount/defstate ^{:on-reload :noop} bp-state
@@ -135,6 +137,7 @@
 
 
 (defn start
+  "Start the block processor"
   []
 
   (let [bps (bp-reset! {:started true :onsite-path-processor nil})]

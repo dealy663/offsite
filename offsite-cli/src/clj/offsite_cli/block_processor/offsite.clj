@@ -118,37 +118,39 @@
   Returns the result of the DB update after the block has been broadcast"
   [onsite-block]
 
-  (su/dbg (str "onsite-blocker-handler: " (:root-path onsite-block)))
-  (when-let [file-dir (:file-dir onsite-block)]
-    (with-open [in-stream (io/input-stream file-dir)]
-      (let [offsite-block (assoc onsite-block :input-stream in-stream
-                                              :prep-state :opened)]
-        (-> offsite-block
-            ;(get-block-state!)
+  (let [publish-msg (ch/gen-publisher :offsite-msg :onsite-block-handler {:log-level :debug})]
+    (publish-msg (str "onsite-blocker-handler: " (:root-path onsite-block)))
+    (when-let [file-dir (:file-dir onsite-block)]
+      (with-open [in-stream (io/input-stream file-dir)]
+        (let [offsite-block (assoc onsite-block :input-stream in-stream
+                                                :prep-state :opened)]
+          (-> offsite-block
+              ;(get-block-state!)
 
-            ;; remember that you must indicate the previous block in the backup chain, sub-node, parent dir, previous file etc
-            (prepare-offsite-block!)
-            ;(split)                                       ;; This is where a payload is added
-            ;(encrypt)
-            ;(broadcast!)
-            #_(db/easy-ingest!))
-        (su/dbg "exiting onsite-block-handler")
-        (ch/m-publish :offsite-msg {:message "Created offsite block"
-                                    :data    offsite-block})))))
+              ;; remember that you must indicate the previous block in the backup chain, sub-node, parent dir, previous file etc
+              (prepare-offsite-block!)
+              ;(split)                                       ;; This is where a payload is added
+              ;(encrypt)
+              ;(broadcast!)
+              #_(db/easy-ingest!))
+          (publish-msg (str "exiting onsite-block-handler\n"
+                            {:message "Created offsite block"
+                             :data    offsite-block})))))))
 
 (defn offsite-block-listener
    "Starts a thread which listens to the offsite-block channel for blocks that are
     ready for offsite broadcast"
    ([offsite-block-handler-impl]
 
-    (su/dbg "dispatching OfBL thread")
-    (a/go
-       (println "OfBL: started loop thread for offsite-blocks")
-       (while (:started @bpc/bp-state)
-          (su/dbg "OfBL: waiting for next offsite block")
+    (let [publish-msg (ch/gen-publisher :offsite-msg :offsite-block-listener {:log-level :debug})]
+      (publish-msg "dispatching OfBL thread")
+      (a/go
+        (publish-msg "started loop thread for offsite-blocks")
+        (while (:started @bpc/bp-state)
+          (publish-msg "OfBL: waiting for next offsite block")
           #_(when-let [offsite-block (a/<! (ch/get-ch :offsite-block-chan))]
-             (when-not (= bpc/stop-key offsite-block)
-                (offsite-block-handler-impl offsite-block))))))
+              (when-not (= bpc/stop-key offsite-block)
+                (offsite-block-handler-impl offsite-block)))))))
 
    ([]
     (offsite-block-listener onsite-block-handler)))

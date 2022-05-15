@@ -51,7 +51,7 @@
 
   (fn [block]
     (when-not (= block bpc/stop-key)
-      (su/dbg "Received block: " block))
+      (su/debug "Received block: " block))
     (a/>!! done-chan block)))
 
 #_(defn chan-start-test-impl
@@ -60,7 +60,7 @@
 
      Returns a function with the start logic"
 
-  (su/dbg "returning testing start logic fn, with handler: " handler)
+  (su/debug "returning testing start logic fn, with handler: " handler)
   (fn []
     (ch/new-channel! :onsite-block-chan bpc/stop-key)
     ;(ch/new-channel! :offsite-block-chan bp/stop-key)

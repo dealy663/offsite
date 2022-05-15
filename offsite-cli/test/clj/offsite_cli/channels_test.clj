@@ -53,14 +53,14 @@
   (a/go-loop []
     (if-let [result (a/<! <channel)]
       (do
-        (su/dbg "TAP got - " prefix ": " result)
+        (su/debug "TAP got - " prefix ": " result)
         ;(a/>! >router-ch {:routes :waiter :action inc})
         (recur))
-      (su/dbg prefix " - done!"))))
+      (su/debug prefix " - done!"))))
 
 #_(deftest subscribe-test
   (testing "Subscribing to topics on a channel."
-    (su/dbg "Pre channels: " (-> @channels :map keys))
+    (su/debug "Pre channels: " (-> @channels :map keys))
     (let [timer 2000
           test-bus (a/timeout timer)
           test-pub (a/pub test-bus :topic-1)
@@ -70,15 +70,15 @@
           promise (promise)
           payload {:topic-1 :subject-bar :data promise}
           monitor (fn [msg]
-                    (su/dbg "monitor got msg: " msg)
+                    (su/debug "monitor got msg: " msg)
                     (when-let [match (if (= payload msg) :success :failed)]
                       (deliver (:data msg) :done)))
           <listener (subscribe foo-pub :subject-foo monitor {:timeout timer})
           <test-listener (a/timeout timer)
           ]
       ;(a/sub test-pub :subject-bar <test-listener)
-      (su/dbg "Post channels: " (-> @channels :map keys))
-      (su/dbg "putting payload on :foo-chan")
+      (su/debug "Post channels: " (-> @channels :map keys))
+      (su/debug "putting payload on :foo-chan")
       ;(a/put! test-bus payload)
       (put! :foo-chan payload true)
 
@@ -90,7 +90,7 @@
       (a/unsub-all test-pub)
       #_(if-let [msg (a/<!! <listener)]
         (do
-          (su/dbg "<test-listener got: " msg)
+          (su/debug "<test-listener got: " msg)
           (is (= :success (:status msg))
               "The message :foo should already be ready before we take from <listener"))
         (is false "The message didn't arrive before the channel timed out."))
@@ -112,7 +112,7 @@
           monitorA      (fn [msg]
                           (if msg
                             (do
-                              (su/dbg "channels: " (:map @channels))
+                              (su/debug "channels: " (:map @channels))
                               (put! :bar-chan {:routes :waiter :inc 1})
                               (is (= payload msg)
                                   "The message :biz should already be ready before we take from <listenerA"))
@@ -227,10 +227,10 @@
   (a/go-loop []
     (if-let [result (ms/take! <stream)]
       (do
-        (su/dbg "TAP got - " prefix ": " result)
+        (su/debug "TAP got - " prefix ": " result)
         ;(a/>! >router-ch {:routes :waiter :action inc})
         (recur))
-      (su/dbg prefix " - done!"))))
+      (su/debug prefix " - done!"))))
 
 (defn manifold-init
   []
@@ -255,15 +255,15 @@
       )))
 
 (defn monitor! [name publisher topic]
-  (su/dbg "Created monitor: " name)
+  (su/debug "Created monitor: " name)
   (let [<listen (a/chan 1)]
     (a/sub publisher topic <listen)
     (a/go-loop []
       (if-let [{:keys [message]} (a/<! <listen)]
         (do
-          (su/dbg name ": " topic \- message)
+          (su/debug name ": " topic \- message)
           (recur))
-        (su/dbg "closing monitor: " name)))))
+        (su/debug "closing monitor: " name)))))
 
 (defn start []
   (let [<publish (a/chan 1)

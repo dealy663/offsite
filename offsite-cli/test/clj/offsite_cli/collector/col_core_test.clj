@@ -92,10 +92,10 @@
   [progress-map]
 
   (let [{:keys [cwd dir-count file-count byte-count]} progress-map]
-    (su/dbg "Recursing through: " cwd
-            ", dir-count: "  dir-count
-            ", file-count: "  file-count
-            ", byte-count: " byte-count)))
+    (su/debug "Recursing through: " cwd
+              ", dir-count: " dir-count
+              ", file-count: " file-count
+              ", byte-count: " byte-count)))
 
 (def dir-info-empty {:root       nil
                      :dir-count  0
@@ -110,7 +110,7 @@
   (let [dir-path (-> dir .toFile .getCanonicalPath)]
     (if (included? dir-path)
       (do
-        #_(su/dbg "pre-visiting dir: " dir ", dir-info: " @dir-info)
+        #_(su/debug "pre-visiting dir: " dir ", dir-info: " @dir-info)
         ;; The root directory isn't stored in the DB so don't look for it, but it should still
         ;; be added to the dir-count
         (when (> (:dir-count @dir-info) 0)
@@ -175,7 +175,7 @@
 
   (reset! dir-info (assoc dir-info-empty :root            path
                                          :all-path-blocks (dbc/get-all-path-blocks (:backup-id col/get-backup-info))))
-  #_(su/dbg "got all-path-blocks: " (:all-path-blocks @dir-info))
+  #_(su/debug "got all-path-blocks: " (:all-path-blocks @dir-info))
   (let [file-dir (if (string? path) (fs/file path) path)]
     (fs/walk-file-tree file-dir {:pre-visit-dir pre-visit-dir :visit-file visit-file})
     @dir-info))

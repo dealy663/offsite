@@ -28,10 +28,11 @@
 
 (def events #{:col-progress :col-complete})
 (declare start stop get-backup-info)
+(swap! init/client-state update :service-keys conj :collector)
 
 (mount/defstate collector-chans
   :start (do
-           (su/dbg "starting col-core")
+           (su/debug "starting col-core")
            ;(new-channel! :path-chan stop-key)
            #_(start))
   :stop (stop))
@@ -111,7 +112,7 @@
           (swap! dir-info-atom update :parent-ids conj (:xt/id path-block))
           (swap! dir-info-atom update :dir-count inc)
           (when (nil? parent-id)
-            (su/dbg "pre-visit-dir-fn: publishing root-path: " path-block)
+            (su/debug "pre-visit-dir-fn: publishing root-path: " path-block)
             (ch/m-publish :root-path {:path-block path-block :dir-info-atom dir-info-atom}))
           ;(su/dbg "pre-visit-dir-fn: publishing :catalog-add-block")
           (ch/m-publish :catalog-add-block (:orig-path path-block))
@@ -145,7 +146,7 @@
           (swap! dir-info-atom update :byte-count + (fs/size file))
           (swap! dir-info-atom update :file-count inc)
           (when (nil? parent-id)
-            (su/dbg "visit-file-fn: publishing root-path: " path-block)
+            (su/debug "visit-file-fn: publishing root-path: " path-block)
             (ch/m-publish :root-path {:path-block path-block :dir-info-atom dir-info-atom}))
           ;(su/dbg "visit-file-fn: publishing :catalog-add-block")
           (ch/m-publish :catalog-add-block (:orig-path path-block))
@@ -217,7 +218,7 @@
    (start backup-root-paths nil))
 
   ([backup-root-paths progress-callback]
-   #_(su/dbg "Starting Collector started: " (:started @collector-state))
+   #_(su/debug "Starting Collector started: " (:started @collector-state))
    (when-not (:started @collector-state)
      (ch/m-publish :col-msg (str "Starting collector, root paths: " backup-root-paths))
      (swap! init/client-state assoc :catalog-state :started)

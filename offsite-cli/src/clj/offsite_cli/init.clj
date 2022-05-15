@@ -16,7 +16,8 @@
   {:catalog-state nil
    :backup-state  nil
    :onsite-state  nil
-   :offsite-state nil})
+   :offsite-state nil
+   :service-keys  #{}})
 
 (def client-state (atom empty-state))
 
@@ -52,10 +53,10 @@
 
    (fn [f]
      (if debug
-       (su/dbg "matching file: " (.getName f) ", pat: " pat-str))
+       (su/debug "matching file: " (.getName f) ", pat: " pat-str))
      (when-let [m (.getPathMatcher matcher pat-str)]
        (if debug
-         (su/dbg "got path matcher: " m))
+         (su/debug "got path matcher: " m))
        (.matches m (fs/canonicalize f))))))
 
 (defn string-path-matcher-fn
@@ -74,12 +75,12 @@
      (fn [file]
        (let [f-path (-> file fs/canonicalize str)]
          (if debug
-           (su/dbg "pattern: " str-pat ", path: " f-path))
+           (su/debug "pattern: " str-pat ", path: " f-path))
          (or (= f-path str-pat-can)
              (when (str/ends-with? str-pat fs/file-separator)
                (let [f-path (if (fs/directory? file) (str f-path "/") f-path)]
                  (if debug
-                   (su/dbg "f-path: " f-path))
+                   (su/debug "f-path: " f-path))
                  (str/starts-with? f-path str-pat-can)))))))))
 
 (defn build-exclusions
@@ -127,7 +128,7 @@
    (mapv (fn [exclusion-pat]
            (let [[type _] (str/split exclusion-pat #":")]
              (if (str/ends-with? type "!")
-               (su/dbg "excl type: " type ", exclusion-str: " exclusion-pat))
+               (su/debug "excl type: " type ", exclusion-str: " exclusion-pat))
              (if (or (str/starts-with? type "regex") (str/starts-with? type "glob"))
                (pattern-matcher-fn exclusion-pat)
                (string-path-matcher-fn exclusion-pat)))) (-> paths-config :globals :exclusions))))

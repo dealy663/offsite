@@ -19,7 +19,8 @@
             [mount.core :as mount]
             [offsite-cli.db.catalog :as dbc]
             [manifold.go-off :as mg]
-            [babashka.fs :as fs]))
+            [babashka.fs :as fs]
+            [offsite-cli.init :as init]))
 
 (declare start stop)
 (mount/defstate onsite-bp-state
@@ -64,7 +65,7 @@
     Returns an offsite block for a directory to be prepped for backup"
    [ons-dir-block]
 
-   (su/dbg "process-dir: " (:orig-path ons-dir-block))
+   (su/debug "process-dir: " (:orig-path ons-dir-block))
    (let [file-dirs (.listFiles (:file-dir ons-dir-block))]
       (->> file-dirs
            (filter #(col/included? %))
@@ -88,7 +89,7 @@
     Returns file-state map if the object is new or has changed and is to be backed up"
    [ons-file-block]
 
-   (su/dbg "process-file: " (:orig-path ons-file-block))
+   (su/debug "process-file: " (:orig-path ons-file-block))
    (let [file-info  (bpc/make-block-info ons-file-block)
          ;_ (su/dbg "Got block info: " file-info)
          file-state (or (db/get-ofs-block-state! (:xt/id file-info))
@@ -125,7 +126,7 @@
       (process-dir ons-block)
       (process-file ons-block))))
 
-(defn- path-block-handler
+#_(defn- path-block-handler
   "Overrideable logic for processing path-blocks that have been added to the DB for the current
    backup. This function will process all path-blocks currently in the catalog and then will
    check to see if any more have been added while it was working. If there are more to process
@@ -135,13 +136,13 @@
    (path-block-handler nil))
 
   ([deferred]
-   (su/dbg "path-block-handler: starting")
+   (su/debug "path-block-handler: starting")
    (a/go-loop [opp (-> @bpc/bp-state :onsite-path-processor first)]
      (when opp
       (dosync (alter bpc/bp-state update :onsite-path-processor rest))
       (with-open [path-seq-itr (dbc/get-path-blocks-lazy (:backup-id (col/get-backup-info)) {:state :catalog})]
         (doseq [path-block (iterator-seq path-seq-itr)]
-          (su/dbg "path-block-handler: " (first path-block))
+          (su/debug "path-block-handler: " (first path-block))
           (->> path-block
                first
                (process-block))))
@@ -152,26 +153,28 @@
        (alter bpc/bp-state assoc
               :catalog-update nil
               :onsite-path-processor (md/future (path-block-handler)))))
-   (su/dbg "path-block-handler: exiting")))
+   (su/debug "path-block-handler: exiting")))
 
 (defn- path-block-handler2
   [buf-stream]
 
-  (mg/go-off
-    (su/dbg "path-block-handler2: start")
-    (loop [msg            (mg/<!? buf-stream)
-           blocks-handled 0]
-      (if msg
-        (do
-          ;(su/dbg "path-block-handler2: got msg event: " msg)
-          (with-open [path-seq-itr (dbc/get-path-blocks-lazy (:backup-id (col/get-backup-info)) {:state :catalog})]
-            (doseq [path-block (iterator-seq path-seq-itr)]
-              (su/dbg "path-block-handler2: " (-> path-block first :orig-path))
-              (->> path-block
-                   first
-                   (process-block))))
-          (recur (mg/<!? buf-stream) (inc blocks-handled)))
-        (su/dbg "path-block-handler2: exit, blocks-handled " blocks-handled)))))
+  (let [publish-msg (ch/gen-publisher :onsite-msg :path-block-handler2 {:log-level :debug})]
+    (mg/go-off
+      (publish-msg "start")
+      (loop [msg (mg/<!? buf-stream)
+             blocks-handled 0]
+        (if msg
+          (do
+            (with-open [path-seq-itr (dbc/get-path-blocks-lazy (:backup-id (col/get-backup-info)) {:state :catalog})]
+              (doseq [path-block (iterator-seq path-seq-itr)]
+                (publish-msg (-> path-block first :orig-path))
+                (ch/m-publish :msg {:event-type :path-block-handler2
+                                    :payload    (-> path-block first :orig-path)})
+                (->> path-block
+                     first
+                     (process-block))))
+            (recur (mg/<!? buf-stream) (inc blocks-handled)))
+          (publish-msg (str "exit, blocks-handled " blocks-handled)))))))
 
 (defn catalog-block-handler
   "Monitor function for onsite-block messages from the collector, transfers the message to
@@ -184,27 +187,30 @@
   Returns the output stream"
   [cat-stream buf-stream]
 
-  (mg/go-off
-    (loop [msg (mg/<!? cat-stream)]
-      ;(su/dbg "cbh: got cat msg: " msg)
-      (if msg
-        (let [p (ms/try-put! buf-stream msg 0 ::timedout)]
-          ;          (su/dbg "cbh: put realized? - " (md/realized? p) ", val: " @p)
-          (if @p
-            (su/dbg "cbh: put msg on buf-stream: " msg)
-            (su/dbg "cbh: dropped msg buf-stream full. " msg)) ;; only put onto buf-stream if it isn't full
-          (recur (mg/<!? cat-stream)))
-        (do
-          (ms/close! buf-stream)
-          (log/info "catalog-block-handler: exit")))))
+  (let [publish-msg (ch/gen-publisher :onsite-msg :catalog-block-handler)]
+    (mg/go-off
+      (loop [msg (mg/<!? cat-stream)]
+        ;(su/dbg "cbh: got cat msg: " msg)
+        (if msg
+          (let [p (ms/try-put! buf-stream msg 0 ::timedout)]
+            ;          (su/dbg "cbh: put realized? - " (md/realized? p) ", val: " @p)
+            (if @p
+              (publish-msg (str "put msg on buf-stream: " msg))
+              (publish-msg (str "dropped msg buf-stream full. " msg))) ;; only put onto buf-stream if it isn't full
+            (recur (mg/<!? cat-stream)))
+          (do
+            (ms/close! buf-stream)
+            (log/info "catalog-block-handler: exit"))))))
   buf-stream)
 
 (defn root-catalog-block-handler
   ""
   [msg]
 
-  (let [{:keys [path-block dir-info-atom]} msg]
-    (su/dbg "root-catalog-block-handler: " path-block)
+  (let [publish-msg (ch/gen-publisher :onsite-msg :root-catalog-block-handler {:log-level :info})
+        payload (su/payload-gen :root-catalog-block-handler)
+        {:keys [path-block dir-info-atom]} msg]
+    (publish-msg path-block)
     (dosync (alter bpc/bp-state assoc :catalog-update path-block))))
 
 #_(defn root-path-event-handler
@@ -219,10 +225,10 @@
   ([stream handler-fn]
 
    (mg/go-off
-     (su/dbg "setting root-path-handler loop")
+     (su/debug "setting root-path-handler loop")
      (loop []
        (when-let [deferred-root (mg/<!? stream)]
-         (su/dbg "got deferred-root: " deferred-root)
+         (su/debug "got deferred-root: " deferred-root)
          (handler-fn deferred-root)
          (recur))))))
 
@@ -230,15 +236,11 @@
    "Standard implementation of start, can be overridden in test by passing customized body"
    []
 
-  ;  (ch/m-subscribe :root-path)
   (ch/m-sub-monitor :root-path root-catalog-block-handler)
   (let [cat-stream (ch/m-subscribe :catalog-add-block)
         out-stream (ms/stream 2)]
     (catalog-block-handler cat-stream out-stream)
-    (path-block-handler2 out-stream))
-  #_(-> (:bus @ch/channels)
-      (mb/subscribe :root-path)
-      (root-path-event-handler)))
+    (path-block-handler2 out-stream)))
 
 (defn start
   "Start processing block-data from the queue
@@ -250,12 +252,11 @@
 
   ([start-impl]
 
-   (when-not (:started @bpc/bp-state)
-     (su/dbg "Starting bp-onsite with impl fn: " start-impl)
-     ;     (bpc/bp-reset! {:started true :onsite-path-processor nil})
-     (bpc/start)
-     ;     (dosync (alter bpc/bp-state assoc :started true :onsite-path-processor nil))
-     (start-impl))))
+   (let [publish-msg (ch/gen-publisher :onsite-msg :start)]
+     (when-not (:started @bpc/bp-state)
+       (publish-msg (str "Starting bp-onsite with impl fn: " start-impl))
+       (bpc/start)
+       (start-impl)))))
 
 (defn- stop-default
    "Standard implementation of stop, can be overridden int est by passing customized body"
@@ -276,6 +277,7 @@
 
   ([stop-impl]
 
-    (when (:started @bpc/bp-state)
-       (dosync (alter bpc/bp-state assoc :started false))
-       (stop-impl))))
+   (dosync
+     (when (:started @bpc/bp-state)
+       (alter bpc/bp-state assoc :started false)
+       (stop-impl)))))

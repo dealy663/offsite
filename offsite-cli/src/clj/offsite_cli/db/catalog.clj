@@ -60,11 +60,11 @@
    Returns a seq of path-blocks"
   ([backup-id where-clauses]
 
-   (su/dbg "get-all-path-blocks where-clauses: " where-clauses)
+   (su/debug "get-all-path-blocks where-clauses: " where-clauses)
    (let [query '[[e :backup-id backup-id]
                  [e :data-type :path-block]]
          query (add-where-clauses 'e query where-clauses)
-         _ (su/dbg "all-path-blocks query ------> " query)
+         _ (su/debug "all-path-blocks query ------> " query)
          all-paths-set (xt/q
                          (xt/db dbc/db-node*)
                          (assoc '{:find  [(pull e [*])]}

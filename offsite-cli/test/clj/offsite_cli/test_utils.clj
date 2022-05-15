@@ -29,45 +29,31 @@
     (is (= true (< dur 5000))
         (str "Duration: " dur " (ms) to write the block to DB was greater than 5 sec."))))
 
-;(defn event-handler
-;  "Handles event notifications
-;
-;   Params:
-;   stream     A manifold stream that has subscribed to the event-bus for :root-path messages
-;   handler-fn Function to handle the event"
-;  [stream handler-fn]
-;
-;  (mg/go-off
-;    (su/dbg "setting event-handler loop")
-;    (loop []
-;      (when-let [deferred (mg/<!? stream)]
-;        (su/dbg "got an event: " deferred)
-;        (handler-fn deferred)
-;        #_(try
-;          (su/dbg "got an event: " deferred)
-;          (handler-fn deferred)
-;          (catch Exception e (log/error (str "Got exception while handling event: " (.getMessage e)))))
-;        (recur)))))
-
-;(defn offsite-msg-handler
-;  [msg]
-;
-;  (su/dbg "Got offsite msg: " msg))
-
 (defn get-all-onsite
   []
 
   (dbc/get-all-path-blocks (:backup-id (db/get-last-backup!)) {:state :onsite}))
 
+(defn event-msg-monitors
+  "Sets up monitors for various event messages
+
+  Params:
+  topic      A keyword, typically a namespace
+  events     A sequence of events to monitor (normally functions within the namespace"
+  [topic events]
+
+  (mapv #(ch/m-sub-monitor topic (ch/m-event-msg-handler-fn %)) events))
+
 (defn start-collector
   []
 
   (init/reset)
-  (ch/m-sub-monitor :col-msg #(su/dbg "Got collector msg: " %))
-  (ch/m-sub-monitor :offsite-msg #(su/dbg (:message %) ": " (-> % :data :orig-path)))
+  (event-msg-monitors :onsite-msg [:path-block-handler2 :catalog-block-handler :root-catalog-block-handler])
+  (ch/m-sub-monitor :col-msg #(su/debug "Got collector msg: " %))
+  (ch/m-sub-monitor :offsite-msg #(su/debug (:message %) ": " (-> % :data :orig-path)))
   (bpo/start)
   ;(col/start (->> @init/backup-paths :backup-paths (take 2)))
-  ;(col/start (-> @init/backup-paths :backup-paths (get 1) vector))
+  ;(col/start (-> @init/backup-paths :backup-paths (get 2) vector))
   (col/start (:backup-paths @init/backup-paths)))
 
 (defn reset-db!
@@ -80,3 +66,13 @@
     (mapv #(ms/close! %) streams))
   (#'offsite-cli.db.dev-test/evict-backup (:backup-id (db/get-last-backup!))))
 
+(defn restart
+  "Restart the indicated client service
+
+  Params:
+  service     A keyword representing the service to restart, must be a member of (:service-keys @init/client-state)"
+  [service]
+
+  (case service
+    :collector (do (reset-db!) (start-collector))
+    (su/warn service " is an unknown service type, no action. Service keys: " (:service-keys @init/client-state))))
