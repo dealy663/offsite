@@ -71,28 +71,40 @@
 
    (.toLowerCase (str (:user-uuid (offsite-user-id)) "-" (hostname))))
 
-;(defmacro debug [& messages]
-;   `(log/debug "\n\t***------->>>" (str ~@messages)))
+(defmacro log-msg [level & messages]
+   "Writes a log messages at the specified level, adds an additional string to make it standout
 
-(defn log-symbol
-   [level]
-
-   (println "ll: " level)
-   '(symbol (str "clojure.tools.logging/" (name level))))
-
-(defmacro log-msg [level messages]
+   Params:
+   level      The log level to write at
+   messages   Data to write out in the log message"
    `(clojure.tools.logging/logf ~level "\n\t***------->>> %s" (str ~@messages)))
 
 (defmacro debug [& messages]
-   `(log-msg :debug ~messages))
+   "Writes a debug log message
+
+   Params:
+   messages     Data to write out in the log message"
+   `(log-msg :debug ~@messages))
 
 (defmacro info [& messages]
-   `(log-msg :info ~messages))
+   "Writes a info log message
+
+   Params:
+   messages     Data to write out in the log message"
+   `(log-msg :info ~@messages))
 
 (defmacro warn [& messages]
+   "Writes a warn log message
+
+   Params:
+   messages     Data to write out in the log message"
    `(log-msg :warn ~messages))
 
 (defmacro error [& messages]
+   "Writes a error log message
+
+   Params:
+   messages     Data to write out in the log message"
    `(log-msg :error ~messages))
 
 (defmacro payload-gen

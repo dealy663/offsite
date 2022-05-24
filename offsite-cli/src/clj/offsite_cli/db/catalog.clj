@@ -50,7 +50,8 @@
   (into where (map #(into [entity-v] %) clause-map)))
 
 (defn get-all-path-blocks
-  "Retrieves a group of path-blocks
+  "Retrieves a group of path-blocks. Takes an optional map of additional where clauses. For example
+  to get all path-blocks where the size is 0 use: (get-all-path-blocks backup-id {:size 0})
 
    Params:
    backup-id        The ID of the backup in progress
@@ -60,16 +61,17 @@
    Returns a seq of path-blocks"
   ([backup-id where-clauses]
 
-   (su/debug "get-all-path-blocks where-clauses: " where-clauses)
-   (let [query '[[e :backup-id backup-id]
-                 [e :data-type :path-block]]
-         query (add-where-clauses 'e query where-clauses)
-         _ (su/debug "all-path-blocks query ------> " query)
-         all-paths-set (xt/q
-                         (xt/db dbc/db-node*)
-                         (assoc '{:find  [(pull e [*])]}
-                                :where query))]
-     all-paths-set))
+   (let [publish-msg (ch/gen-publisher :catalog-msg :get-all-path-blocks)]
+     (publish-msg (str "get-all-path-blocks where-clauses: " where-clauses))
+     (let [query '[[e :backup-id backup-id]
+                   [e :data-type :path-block]]
+           query (add-where-clauses 'e query where-clauses)
+           _     (publish-msg (str "all-path-blocks query ------> " query))
+           all-paths-set (xt/q
+                           (xt/db dbc/db-node*)
+                           (assoc '{:find [(pull e [*])]}
+                             :where query))]
+       all-paths-set)))
 
   ([backup-id]
    (get-all-path-blocks backup-id nil)))

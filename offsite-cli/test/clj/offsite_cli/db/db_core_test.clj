@@ -39,7 +39,8 @@
 (use-fixtures
   :once
   #(with-components [#'offsite-cli.config/env
-                     #'offsite-cli.db.db-core/db-node*] %))
+                     #'offsite-cli.db.db-core/db-node*
+                     #'offsite-cli.channels/channels] %))
 
 (doto
   (LoggerFactory/getLogger "xtdb.query")

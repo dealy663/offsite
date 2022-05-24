@@ -65,7 +65,7 @@
    (evict-entities id-seq inst-opts true))
 
   ([id-seq inst-opts sync?]
-   (log/warn "Evicting the following entities: " id-seq)
+   (su/info "Evicting the following entities: " id-seq)
    (let [f (fn []
              (xt/submit-tx db/db-node*
                            (mapv #(let [tx-time (db/get-entity-tx-time (first %) inst-opts)]

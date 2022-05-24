@@ -119,7 +119,7 @@
   [onsite-block]
 
   (let [publish-msg (ch/gen-publisher :offsite-msg :onsite-block-handler {:log-level :debug})]
-    (publish-msg (str "onsite-blocker-handler: " (:root-path onsite-block)))
+    (publish-msg (:root-path onsite-block))
     (when-let [file-dir (:file-dir onsite-block)]
       (with-open [in-stream (io/input-stream file-dir)]
         (let [offsite-block (assoc onsite-block :input-stream in-stream
@@ -133,9 +133,9 @@
               ;(encrypt)
               ;(broadcast!)
               #_(db/easy-ingest!))
-          (publish-msg (str "exiting onsite-block-handler\n"
+          (publish-msg (str "exiting:\n"
                             {:message "Created offsite block"
-                             :data    offsite-block})))))))
+                             :data    (:orig-path offsite-block)}) #{:exit}))))))
 
 (defn offsite-block-listener
    "Starts a thread which listens to the offsite-block channel for blocks that are

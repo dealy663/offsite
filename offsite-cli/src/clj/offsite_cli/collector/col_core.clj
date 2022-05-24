@@ -32,9 +32,7 @@
 
 (mount/defstate collector-chans
   :start (do
-           (su/debug "starting col-core")
-           ;(new-channel! :path-chan stop-key)
-           #_(start))
+           (su/debug "starting col-core"))
   :stop (stop))
 
 (defn create-path-block
@@ -99,22 +97,29 @@
        false))))
 
 (defn- pre-visit-dir-fn
+  "Creates a function that babashka/fs will use when walking a file path. This function will be called
+  before visiting a directory. The returned function takes two parameters and returns a keyword indicating
+  whether to :continue or :skip-subtree if processing this path is to stop.
+
+  Params:
+  dir-info-atom    A data structure within an atom that has details about the path being processed
+
+  Returns (fn [dir attrs] ...)"
   [dir-info-atom]
 
-  (fn [dir attrs]
-    ;(su/dbg "pre-visit-dir got dir: " dir)
-    (let [dir-file   (.toFile dir)
-          ;dir-path  (-> dir .toFile .getCanonicalPath)
-          parent-id (-> @dir-info-atom :parent-ids first)]
+  (fn
+    [dir attrs]
+    (let [publish-msg (ch/gen-publisher :collector-msg :pre-visit-dir-fn)
+          dir-file     (.toFile dir)
+          parent-id   (-> @dir-info-atom :parent-ids first)]
       (if (included? dir)
         (let [path-block (create-path-block dir-file parent-id)]
           (dbc/add-path-block! path-block)
           (swap! dir-info-atom update :parent-ids conj (:xt/id path-block))
           (swap! dir-info-atom update :dir-count inc)
           (when (nil? parent-id)
-            (su/debug "pre-visit-dir-fn: publishing root-path: " path-block)
+            (publish-msg (str "pre-visit-dir-fn: publishing root-path: " path-block))
             (ch/m-publish :root-path {:path-block path-block :dir-info-atom dir-info-atom}))
-          ;(su/dbg "pre-visit-dir-fn: publishing :catalog-add-block")
           (ch/m-publish :catalog-add-block (:orig-path path-block))
           (ch/m-publish :col-progress (dissoc @dir-info-atom :parent-ids))
           :continue)
@@ -123,6 +128,14 @@
           :skip-subtree)))))
 
 (defn- post-visit-dir-fn
+  "Creates a function that babashka/fs will use when walking a dir path. This function will be called
+  after visiting a directory. The returned function takes the dir as the first param and an exception as the
+  second, the exception will be rethrown if it is nil.
+
+  Params:
+  dir-info-atom    A data structure within an atom that has details about the path being processed
+
+  Returns (fn [_ exp] ...)"
   [dir-info-atom]
 
   (fn [_ exp]
@@ -133,12 +146,22 @@
       (throw exp))))
 
 (defn- visit-file-fn
+  "Creates a function that babshka/fs will use when walking a file path. The function will be called
+  with the file that is being visited by babashka/fs. The returned function takes the dir as the first
+  param and attributes as the second, it will return a keyword indicating whether babashka/fs is to :continue
+  or :skip-subtree if processing should go no further down this path.
+
+  Params:
+  dir-info-atom     A data structure within an atom that has details about the path being processed.
+
+  Returns (fn [path attrs] ...)"
   [dir-info-atom]
 
   (fn [path attrs]
-    ;(su/dbg "visit-file got path: " path)
-    (let [file (.toFile path)
-          file-path (.getCanonicalPath file)]
+    (let [publish-msg (ch/gen-publisher :collector-msg :visit-file-fn)
+          file         (.toFile path)
+          file-path    (.getCanonicalPath file)]
+      (publish-msg (str "visit-file got path: " path))
       (if (included? path)
         (let [parent-id  (-> @dir-info-atom :parent-ids first)
               path-block (create-path-block file parent-id)]
@@ -146,9 +169,9 @@
           (swap! dir-info-atom update :byte-count + (fs/size file))
           (swap! dir-info-atom update :file-count inc)
           (when (nil? parent-id)
-            (su/debug "visit-file-fn: publishing root-path: " path-block)
+            (publish-msg (str "visit-file-fn: publishing root-path: " path-block))
             (ch/m-publish :root-path {:path-block path-block :dir-info-atom dir-info-atom}))
-          ;(su/dbg "visit-file-fn: publishing :catalog-add-block")
+          (publish-msg "visit-file-fn: publishing :catalog-add-block")
           (ch/m-publish :catalog-add-block (:orig-path path-block))
           :continue)
         (do
@@ -156,7 +179,7 @@
           :skip-subtree)))))
 
 (defn walk-paths
-  "Go through all of the paths defined as part of this backup and build a catalog in the DB, while making sure to
+  "Go through all the paths defined as part of this backup and build a catalog in the DB, while making sure to
   obey the exclusion rules that have been defined in the backup config EDN file.
 
   Params:
@@ -188,9 +211,6 @@
    Params:
    stream     A manifold stream that has subscribed to the event-bus for :root-path messages
    handler-fn Function to handle the root-path msg"
-  ;([stream]
-  ; (col-event-monitor stream onsite-block-monitor))
-
   [stream handler-fn]
 
   (mg/go-off
@@ -218,41 +238,41 @@
    (start backup-root-paths nil))
 
   ([backup-root-paths progress-callback]
-   #_(su/debug "Starting Collector started: " (:started @collector-state))
-   (when-not (:started @collector-state)
-     (ch/m-publish :col-msg (str "Starting collector, root paths: " backup-root-paths))
-     (swap! init/client-state assoc :catalog-state :started)
-     (when-not (nil? (:backup-paths @collector-state))
-       (dosync (alter collector-state assoc :backup-paths nil :total-bytes 0)))
+   (let [publish-msg (ch/gen-publisher :col-msg :start)]
+     (when-not (:started @collector-state)
+       (publish-msg (str "Starting collector, root paths: " backup-root-paths))
+       (swap! init/client-state assoc :catalog-state :started)
+       (when-not (nil? (:backup-paths @collector-state))
+         (dosync (alter collector-state assoc :backup-paths nil :total-bytes 0)))
 
-     (dosync (alter collector-state update-in [:backup-count] inc))
-     (try
-       (let [backup-info (db/start-backup! backup-root-paths :adhoc)]
-         (dosync (alter collector-state assoc :started true :backup-info backup-info))
-         (loop [root-paths backup-root-paths
-                acc {:dir-count   0
-                     :file-count   0
-                     :byte-count  0}]
-           (if-let [path-def (first root-paths)]
-             (do
-               ;               (dosync (alter collector-state update-in [:backup-paths] conj path-def))
-               (let [path-block (create-path-block (:path path-def))
-                     root-path (:root-path path-block)
-                     {:keys [dir-count file-count byte-count :as result]} (walk-paths root-path)]
-                 (dosync
-                   (alter collector-state update :backup-paths conj path-def)
-                   (alter collector-state update :total-bytes + byte-count))
-                 ;(su/dbg "path: " root-path " dir-count: " dir-count " file-count: " file-count " byte-count: " byte-count)
-                 (recur (rest root-paths)
-                        (assoc acc :dir-count  (+ dir-count  (:dir-count acc))
-                                   :file-count  (+ file-count  (:file-count acc))
-                                   :byte-count (+ byte-count (:byte-count acc))))))
-             (ch/m-publish :col-finished acc)))
-         (close-collector-channels)
-         (dbc/catalog-complete! (:backup-id backup-info)))
-       (catch Exception e
-         (log/error "Collector stopped with exception: " (.getMessage e))
-         (.printStackTrace e))))))
+       (dosync (alter collector-state update-in [:backup-count] inc))
+       (try
+         (let [backup-info (db/start-backup! backup-root-paths :adhoc)]
+           (dosync (alter collector-state assoc :started true :backup-info backup-info))
+           (loop [root-paths backup-root-paths
+                  acc {:dir-count  0
+                       :file-count 0
+                       :byte-count 0}]
+             (if-let [path-def (first root-paths)]
+               (do
+                 (let [path-block (create-path-block (:path path-def))
+                       root-path (:root-path path-block)
+                       {:keys [dir-count file-count byte-count :as result]} (walk-paths root-path)]
+                   (dosync
+                     (alter collector-state update :backup-paths conj path-def)
+                     (alter collector-state update :total-bytes + byte-count))
+                   (publish-msg (str "path: " root-path " dir-count: " dir-count " file-count: " file-count
+                                     " byte-count: " byte-count))
+                   (recur (rest root-paths)
+                          (assoc acc :dir-count (+ dir-count (:dir-count acc))
+                                     :file-count (+ file-count (:file-count acc))
+                                     :byte-count (+ byte-count (:byte-count acc))))))
+               (ch/m-publish :col-finished acc)))
+           (close-collector-channels)
+           (dbc/catalog-complete! (:backup-id backup-info)))
+         (catch Exception e
+           (log/error "Collector stopped with exception: " (.getMessage e))
+           (.printStackTrace e)))))))
 
 (defn stop []
   "Stops the block-processor, will wait for all blocks in queue to be finished."
@@ -261,5 +281,4 @@
     (println "Collector: stopping")
 
     (dosync (alter collector-state assoc :started false))
-    #_(put! :path-chan stop-key)
     (db/stop-backup! "Stopped from collector.")))
