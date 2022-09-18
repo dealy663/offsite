@@ -21,9 +21,9 @@ If on an Intel Mac do:
   - brew install clojure
   - brew install clojure/tools/clojure
   - brew install gh
-- ~~I also had to download and modify the latest [XTDB](https://github.com/xtdb/xtdb) source from github. You'll find it as a submodule to offsite-cli in the ```xtdb``` directory.
-- I'm using the XTDB-LMDB combo, because I was able to find that the latest instance of LMDB has a build supporting M1, however XTDB doesn't reference it.
-  - To pull in the latest version I had to modify the subproject XTDB-LMDB which is in the module's directory. Update the lwjgl entries to reference version 3.3.0 and change the macos classifiers to: "natives-macos-arm64"~~
+- ~~I also had to download and modify the latest [XTDB](https://github.com/xtdb/xtdb) source from github. You'll find it as a submodule to offsite-cli in the ```xtdb``` directory.~~
+- ~~I'm using the XTDB-LMDB combo, because I was able to find that the latest instance of LMDB has a build supporting M1, however XTDB doesn't reference it.~~
+  - ~~To pull in the latest version I had to modify the subproject XTDB-LMDB which is in the module's directory. Update the lwjgl entries to reference version 3.3.0 and change the macos classifiers to: "natives-macos-arm64"~~
   - The latest versions of RocksDB now support Apple M1 and also offer multi-threaded write support.
     - Use sample-configs/dev-config-rocksdb.edn as a starting point to reference XTDB with the RocksDB backend.
   - Copy the appropriate .edn files from sample-configs to the rootdir offsite-cli.
