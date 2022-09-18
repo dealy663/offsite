@@ -37,7 +37,16 @@ If on an Intel Mac do:
     - Even better we may be able to add some Clojure in the ```lmdb/project.clj``` file which chooses the right classifier based on the detected architecture. 
   - Once things settle down with XTDB on Apple M1 this step in the build will need to be revisited and fixed up.
 - brew install mongodb-community@5.0 (probably not needed for the offsite-cli, but will be for the service and maybe the node too)
-  - Install [NodeJS](https://nodejs.org/dist/v17.3.0/node-v17.3.0.pkg)
+- Install [NodeJS](https://nodejs.org/dist/v17.3.0/node-v17.3.0.pkg)
+  - Install npm
+  - Install react 
+    - $> npm install react 
+- Access the main page of offsite-cli http://localhost:3000
+  - From there you should see a notification about compiling with shadow-cljs
+  - Run shadow-cljs to compile the app
+    - $> npx shadow-cljs watch app
+  - Refresh the main page http://localhost:3000 and it should be ready
+  - You can access the Swagger UI for the REST interface at http://localhost:3000/swagger-ui/index.html
 
 After all that, you should be able to run $> lein repl
 After the repl starts you can run
