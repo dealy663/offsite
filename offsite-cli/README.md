@@ -27,6 +27,10 @@ If on an Intel Mac do:
   - The latest versions of RocksDB now support Apple M1 and also offer multi-threaded write support.
     - Use sample-configs/dev-config-rocksdb.edn as a starting point to reference XTDB with the RocksDB backend.
   - Copy the appropriate .edn files from sample-configs to the rootdir offsite-cli.
+    - backup-paths.edn
+    - dev-config.edn (pick the right one to copy, currently rodksdb)
+    - shadow-cljs.edn
+    - test-config.edn
   - So far on Apple M1 I've had to manually install the XTDB jars by running ```$> lein install``` in the following projects: 
     - xtdb-core
     - xtdb-lmdb
