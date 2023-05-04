@@ -40,7 +40,7 @@ If on an Intel Mac do:
   - I haven't had chance to try this on Apple X86_64 yet. But I expect we will probably have to create a new branch in the xtdb submodule and reference the  ```natives-macos``` classifier for intel in the lmdb ```project.clj``` file.
     - Even better we may be able to add some Clojure in the ```lmdb/project.clj``` file which chooses the right classifier based on the detected architecture. 
   - Once things settle down with XTDB on Apple M1 this step in the build will need to be revisited and fixed up.
-- Intellij Idea
+- ### Intellij Idea
   - Import each module (offsite-cli, offsite-node, offsite-server) as a Leiningen external model. 
   - Be sure to set an appropriate JDK for the project (JDK 8, 11, 17 etc)
   - Create run configurations to launch the REPL (hopefully these can be shared via Git)
