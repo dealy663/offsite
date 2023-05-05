@@ -6,5 +6,6 @@
 ;; configuration of this machine and instance fo the service/application
 
 {:port 3010
- :xtdb-config {}}
+ :xtdb-config {}
+ :max-block-size (* 1024 10000)}
 

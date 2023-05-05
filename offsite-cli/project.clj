@@ -16,8 +16,11 @@
                  [json-html "0.4.7"]
                  [manifold "0.2.3"]
                  ;                 [com.xtdb/xtdb-core "1.20.0-DME-SNAPSHOT"]
-                 [com.xtdb/xtdb-core "1.21.0-beta3"]
-                 [com.xtdb/xtdb-rocksdb "1.21.0-beta3"]
+                 ;[com.xtdb/xtdb-core "1.21.0-beta3"]
+                 ;[com.xtdb/xtdb-rocksdb "1.21.0-beta3"]
+                 [com.xtdb/xtdb-core "1.21.0"]
+                 [com.xtdb/xtdb-rocksdb "1.21.0"]
+                 [byte-streams "0.2.5-alpha2"]
                  ;[com.xtdb/xtdb-core "dev-SNAPSHOT"]        ;locally built versions from xtdb fork
                  ;[com.xtdb/xtdb-lmdb "dev-SNAPSHOT"]        ;using lwjgl 3.3.0
                  ;[com.xtdb/xtdb-test "1.20.0-DME-SNAPSHOT"]
@@ -51,7 +54,7 @@
                  [org.clj-commons/digest "1.4.100"]
                  [selmer "1.12.45"]
                  [thheller/shadow-cljs "2.16.7" :scope "provided"]
-                 [babashka/fs "0.1.2"]
+                 [babashka/fs "0.1.11"]
 
                  ;; statecharts isn't used now and probably should be removed. But keeping comment
                  ;; as this seems like it could be useful in the future

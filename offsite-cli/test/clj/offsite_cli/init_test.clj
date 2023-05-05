@@ -6,11 +6,22 @@
             [offsite-cli.system-utils :as su]
             [clojure.edn :as edn]
             [offsite-cli.collector.col-core :as col]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [mount.core :as mount])
   (:import  (java.util.regex Pattern)))
 
 (def test-configs-dir "test/configurations")
 (def test-backup-data "test/backup-data")
+
+(defn- with-components
+  [components f]
+  (apply mount/start components)
+  (f)
+  (apply mount/stop components))
+
+(use-fixtures
+  :once
+  #(with-components [#'offsite-cli.channels/channels] %))
 
 (deftest test-init
   (testing "Found default backup-paths"

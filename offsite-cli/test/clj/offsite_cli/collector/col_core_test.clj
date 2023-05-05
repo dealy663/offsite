@@ -27,8 +27,8 @@
   :once
   #(with-components [#'offsite-cli.config/env
                      #'offsite-cli.db.db-core/db-node*
-                     #'offsite-cli.init/backup-paths
-                     #'offsite-cli.channels/channels] %))
+                     #'offsite-cli.channels/channels
+                     #'offsite-cli.init/backup-paths] %))
 
 (def test-configs-dir "test/configurations")
 (def backup-data-dir "test/backup-data")

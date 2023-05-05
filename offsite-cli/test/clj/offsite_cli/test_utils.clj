@@ -12,7 +12,11 @@
             [manifold.stream :as ms]
             [manifold.go-off :as mg]
             [clojure.tools.logging :as log]
-            [offsite-cli.db.catalog :as dbc]))
+            [offsite-cli.db.catalog :as dbc]
+            [babashka.fs :as fs]
+            [byte-streams :as bs]))
+
+(def log-1 (fs/file "/Users/derek/Library/Logs/CreativeCloud/CoreSync/CoreSync-2022-05-28.log"))
 
 (defn validate-ofs-block
   ""
@@ -71,13 +75,25 @@
 
    (mapv #(ch/m-sub-monitor topic (ch/m-event-msg-handler-fn %)) events)))
 
+(defn test-byte-streams
+  "Util trying to explore the byte-streams lib for splitting/copying files (or more appropriately
+  data)"
+  [file]
+
+  (let [buf-chunks (bs/to-byte-buffers file {:chunk-size (* 1024 1000)})]
+    (mapv #(subs (String. ^byte[] %) 0 25) buf-chunks)
+    (doseq [chunk buf-chunks
+            ]
+      (su/debug "got chunk, size: " (count chunk)))))
+
 (defn start-collector
   []
   (init/reset)
-  (event-msg-monitors :onsite-msg #_#{:path-block-handler2 :catalog-block-handler :root-catalog-block-handler})
-  (event-msg-monitors :col-msg #_#{:start})
+  (event-msg-monitors :onsite-msg #{:path-block-handler2 :catalog-block-handler :root-catalog-block-handler})
+  (event-msg-monitors :col-msg #{:start})
+  (event-msg-monitors :init-msg #{:get-paths})
   (event-msg-monitors :catalog-msg #_#{:get-all-path-blocks})
-  (event-msg-monitors :offsite-msg #_#{:offsite-block-listener :onsite-block-handler})
+  (event-msg-monitors :offsite-msg #{:offsite-block-listener :onsite-block-handler})
   (bpo/start)
   ;(col/start (->> @init/backup-paths :backup-paths (take 2)))
   ;(col/start (-> @init/backup-paths :backup-paths (get 2) vector))

@@ -6,7 +6,9 @@
     [clojure.java.io :as io]
     [offsite-cli.system-utils :as su]
     [clojure.string :as str]
-    [babashka.fs :as fs])
+    [babashka.fs :as fs]
+    [offsite-cli.channels :as ch]
+    [offsite-cli.config :refer [env]])
   (:import (java.io File)
            (java.util.regex Pattern)
            (java.nio.file Path Paths FileSystems)))
@@ -17,7 +19,8 @@
    :backup-state  nil
    :onsite-state  nil
    :offsite-state nil
-   :service-keys  #{}})
+   :service-keys  #{}
+   :max-block-size (:max-block-size env)})
 
 (def client-state (atom empty-state))
 
@@ -169,10 +172,12 @@
                    in the future we probably should support merging multiple path configs"
   [& paths-override]
 
-  (let [paths-file (or (first paths-override) (:paths-file @su/paths-config))]
+  (let [publish-msg (ch/gen-publisher :init-msg :get-paths)
+        paths-file   (or (first paths-override) (:paths-file @su/paths-config))]
     (if (.exists (io/as-file paths-file))
       (let [paths             (edn/read-string (slurp paths-file))
             exclusions        (into (get-global-exclusions paths) (get-exclusions paths))]
+        (publish-msg (str "paths: " paths "\n exclusions: " exclusions))
         (swap! su/paths-config assoc :backup-paths (:paths paths) :paths-file paths-file
                :exclusions exclusions)
         @su/paths-config)

@@ -13,7 +13,9 @@
             [offsite-cli.db.db-core :as db]
             [clojure.core.async :as a]
             [offsite-cli.channels :as ch]
-            [manifold.bus :as mb])
+            [byte-streams :as bs]
+            [babashka.fs :as fs]
+            [offsite-cli.init :as init])
    (:import (java.io ByteArrayOutputStream)))
 
 (defn update-ofs-block-state
@@ -61,6 +63,48 @@
 
 (declare encrypt-chunk)
 
+(defn encryption-none
+  "A simple pass-through function for early development. This does no encryption
+
+  Params:
+  prepped-block     A block prepped for encryption
+
+  Returns the same block with no encryption applied"
+  [prepped-block]
+
+  (assoc prepped-block :encryption :none))
+
+(defn encryption-aes
+  "Encryption using AES
+
+  Params:
+  options           Encryption options
+  prepped-block     A block prepped for encryption
+
+  Returns the block of data after encryption"
+  [options prepped-block]
+
+  (let [{:keys [chunk]} prepped-block
+        encrypted-chunk "NOT ENCRYPTED"]
+
+    (assoc prepped-block :chunk encrypted-chunk :encryption :aes-options)))
+
+(defn encryption-tink
+  "Encryption using the Google Tink library
+
+  Params:
+  options          Tink configuration parameters
+  prepped-block    A block prepped for encryption
+
+  Returns the block of data after encryption"
+
+  [options prepped-block]
+
+  (let [{:keys [chunk]} prepped-block
+        encrypted-chunk "NOT ENCRYPTED"]
+    ;; tink commands
+    (assoc prepped-block :chunk encrypt-chunk :encryption :tink-algo)))
+
 (defn encrypt
    "Encrypt an offsite-block with the user's key. Then pass on to broadcast
 
@@ -79,11 +123,15 @@
 
     Params:
     prepped-block      A block partially prepared for broadcast
+    process-fn         Function to process and broadcast each chunk of split file
+    algo-fn            (optional - default nil) Override default split logic
 
     Returns a partially prepared block with the file being split and the next chunk to be prepped"
-   [prepped-block]
+   [prepped-block process-fn & algo-fn]
 
-   (let [{:keys [offsite-block block-state input-stream]} prepped-block]
+   (let [{:keys [offsite-block block-state input-stream]} prepped-block
+         file (fs/file (:file-dir prepped-block))
+         byte-buffers (bs/to-byte-buffers file {:chunk-size (:max-block-size init/client-state)})]
       ;; open file
       (with-open [output-stream   (ByteArrayOutputStream.)]
          ;; read max-chunk bytes into buffer
@@ -108,6 +156,15 @@
        (assoc prepped-block :input-stream (io/input-stream file-dir)
                             :prep-state   :opened))))
 
+(defn process-block
+  "Processing logic for sending a file's post split blocks offsite
+
+  Params:
+  sub-block     A block to finish prep for sending offsite"
+  [block]
+
+  (comp))
+
 (defn onsite-block-handler
   "Converts an onsite block to an offsite block. The block is then broadcast to supporting nodes
   and the DB is updated.
@@ -121,15 +178,33 @@
   (let [publish-msg (ch/gen-publisher :offsite-msg :onsite-block-handler {:log-level :debug})]
     (publish-msg (:root-path onsite-block))
     (when-let [file-dir (:file-dir onsite-block)]
+      ;; probably don't need this iostream
       (with-open [in-stream (io/input-stream file-dir)]
         (let [offsite-block (assoc onsite-block :input-stream in-stream
-                                                :prep-state :opened)]
-          (-> offsite-block
+                                                :prep-state :opened)
+              process-block (comp db/easy-ingest!
+                                  ;; probably need to create XTDB doc for the block before easy-ingest
+                                  ;; also some bookkeeping statistics
+                                  broadcast!
+                                  #_(partial encryption-tink :aes)
+                                  encryption-none)
+              onsite-file    (fs/file file-dir)]
+          (loop [split-bufs        (bs/to-byte-buffers onsite-file {:chunk-size (:max-block-size init/client-state)})
+                 block-id          0
+                 previous-block-id nil]
+            (when-let [chunk (first split-bufs)]
+              (let [block {:file-id           (:xt/id onsite-block)
+                           :block-id          block-id
+                           :previous-block-id previous-block-id
+                           :chunk             chunk}]
+                (process-block block)
+                (recur (rest split-bufs) (inc block-id) block-id))))
+          #_(-> offsite-block
               ;(get-block-state!)
 
               ;; remember that you must indicate the previous block in the backup chain, sub-node, parent dir, previous file etc
-              (prepare-offsite-block!)
-              ;(split)                                       ;; This is where a payload is added
+              ;;(prepare-offsite-block!)
+              (split process-block)                                       ;; This is where a payload is added
               ;(encrypt)
               ;(broadcast!)
               #_(db/easy-ingest!))
