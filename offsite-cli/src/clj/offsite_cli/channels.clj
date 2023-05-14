@@ -19,6 +19,8 @@
                     :stop-key nil})                         ;; stop key probably unnecessary, can either be channel-key
                                                             ;; or a keyword based off of channel-key
 
+(def pub-fns (atom {}))
+
 (def event-handler-fn-ref (ref {}))
 
 (declare close-all-channels! m-drop-all-subscribers gen-publisher)
@@ -163,10 +165,30 @@
        (m-publish ~topic {:event-type ~event :payload p# :args ~{:ns (str *ns*)} :tags tags#}))))
 
   ([topic event gen-args]
-
    `(fn
       ([p#]
        (m-publish ~topic {:event-type ~event :payload p# :args ~(assoc gen-args :ns (str *ns*))}))
       ([p# tags#]
        (m-publish ~topic {:event-type ~event :payload p# :args ~(assoc gen-args :ns (str *ns*)) :tags tags#})))))
 
+
+;; This causing a macro expansion error when passing 3 args, this func should probalby be figured out
+;; caching these functions seems to make sense, maybe there is some better way to support this type
+;; of message publishing
+#_(defn pubfn
+  "Generates or returns a function that will publish events only creates the msg publishing function once and
+   caches it in pub-fns, subsequent calls will not need to regenerate the function."
+
+  ([topic event]
+   (if-let [pubfn (get @pub-fns [topic event])]
+     pubfn
+     (let [pubfn (gen-publisher topic event)]
+       (swap! pub-fns assoc [topic event] pubfn)
+       pubfn)))
+
+  ([topic event gen-args]
+   (if-let [pubfn (get @pub-fns [topic event gen-args])]
+     pubfn
+     (let [pubfn (gen-publisher topic event gen-args)]
+       (swap! pub-fns assoc [topic event gen-args] pubfn)
+       pubfn))))

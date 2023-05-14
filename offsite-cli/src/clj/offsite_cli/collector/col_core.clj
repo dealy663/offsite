@@ -17,7 +17,10 @@
 
 (def stop-key :stop-collector)
 
-(def collector-state (ref {:files            []
+;; collector-state A ref representing the current state of the collector
+(def collector-state
+  "The current state of the Collector"
+  (ref {:files            []
                            :started         false
                            :backup-count    0
                            :push-count      0
@@ -36,7 +39,7 @@
   :stop (stop))
 
 (defn create-path-block
-  "Create a backup block
+  "Create an onsite backup block
 
   params:
   file-dir          A backup path
@@ -130,7 +133,7 @@
 (defn- post-visit-dir-fn
   "Creates a function that babashka/fs will use when walking a dir path. This function will be called
   after visiting a directory. The returned function takes the dir as the first param and an exception as the
-  second, the exception will be rethrown if it is nil.
+  second, the exception will be rethrown if it is not nil.
 
   Params:
   dir-info-atom    A data structure within an atom that has details about the path being processed
@@ -158,7 +161,7 @@
   [dir-info-atom]
 
   (fn [path attrs]
-    (let [publish-msg (ch/gen-publisher :collector-msg :visit-file-fn)
+    (let [publish-msg  (ch/gen-publisher :collector-msg :visit-file-fn)
           file         (.toFile path)
           file-path    (.getCanonicalPath file)]
       (publish-msg (str "visit-file got path: " path))
@@ -168,6 +171,7 @@
           (dbc/add-path-block! path-block)
           (swap! dir-info-atom update :byte-count + (fs/size file))
           (swap! dir-info-atom update :file-count inc)
+
           (when (nil? parent-id)
             (publish-msg (str "visit-file-fn: publishing root-path: " path-block))
             (ch/m-publish :root-path {:path-block path-block :dir-info-atom dir-info-atom}))
@@ -188,11 +192,11 @@
   Returns a map of backup info with the number of files, directories an bytes that will make up the backup."
   [root-dir]
 
-  (let [root-file-dir   (if (string? root-dir) (fs/file root-dir) root-dir)
+  (let [root-file-dir  (if (string? root-dir) (fs/file root-dir) root-dir)
         path-info-atom (atom {:parent-ids '() :file-count 0 :dir-count 0 :byte-count 0})
         pre-visit-dir  (pre-visit-dir-fn path-info-atom)
         post-visit-dir (post-visit-dir-fn path-info-atom)
-        visit-file      (visit-file-fn path-info-atom)]
+        visit-file     (visit-file-fn path-info-atom)]
     (fs/walk-file-tree root-file-dir {:pre-visit-dir pre-visit-dir :post-visit-dir post-visit-dir :visit-file visit-file})
     (ch/m-publish :walk-tree :complete)
 

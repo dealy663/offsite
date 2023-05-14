@@ -68,7 +68,7 @@
   :target-path "target/%s/"
   :main ^:skip-aot offsite-cli.core
 
-  :plugins [] 
+  :plugins [[lein-codox "0.10.8"]]
   :clean-targets ^{:protect false}
   [:target-path "target/cljsbuild"]
   
