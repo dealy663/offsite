@@ -134,7 +134,10 @@
       (publish-msg "start")
       (loop [msg (mg/<!? buf-stream)
              blocks-handled 0]
-        (if msg
+        (if-not msg
+          (do
+            (md/success! result-d {:catalog-blocks-handled blocks-handled})
+            (publish-msg (str "exit, blocks-handled " blocks-handled)))
           (do
             (with-open [path-seq-itr (dbc/get-path-blocks-lazy (:backup-id (col/get-backup-info)) {:state :catalog})]
               (doseq [path-block (iterator-seq path-seq-itr)]
@@ -145,10 +148,7 @@
                 (->> path-block
                      first
                      (process-block))))
-            (recur (mg/<!? buf-stream) (inc blocks-handled)))
-          (do
-            (md/success! result-d {:catalog-blocks-handled blocks-handled})
-            (publish-msg (str "exit, blocks-handled " blocks-handled))))))))
+            (recur (mg/<!? buf-stream) (inc blocks-handled))))))))
 
 (defn catalog-block-handler
   "Monitor function for onsite-block messages from the collector, transfers the message to
@@ -166,15 +166,15 @@
   (let [publish-msg (ch/gen-publisher :onsite-msg :catalog-block-handler)]
     (mg/go-off
       (loop [msg (mg/<!? cat-stream)]
-        (if msg
+        (if-not msg
+          (do
+            (ms/close! buf-stream)
+            (log/info "catalog-block-handler: exit"))
           (let [p (ms/try-put! buf-stream msg 0 ::timedout)]
             (if @p
               (publish-msg (str "put msg on buf-stream: " msg))
               (publish-msg (str "dropped msg buf-stream full. " msg))) ;; only put onto buf-stream if it isn't full
-            (recur (mg/<!? cat-stream)))
-          (do
-            (ms/close! buf-stream)
-            (log/info "catalog-block-handler: exit"))))))
+            (recur (mg/<!? cat-stream)))))))
   buf-stream)
 
 ; 5/15/22
