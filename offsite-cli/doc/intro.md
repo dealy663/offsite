@@ -29,13 +29,36 @@ It will walk the backup paths and compare the files and directories to the exclu
 database to build a list of files to be backed up if they've changed. The [Babashka FS library](https://github.com/babashka/fs)
 is used to manage walking through the backup paths.
 
-For each file found on a backup path an onsite block will be created if it is to be backed up.
+For each file found on a backup path an onsite block will be created if it is to be backed up. The onsite block is 
+added to the catalog and stored in the DB for later processing
 
 ```mermaid
 sequenceDiagram
 Collector->>DB: Start Backup
-Collector->>BlockProcessor: :catalog-add-block
+par Add Block
+Collector->>DB: :catalog-add-block
+loop root paths
+    Collector->>bp/onsite: :catalog-add-block
+end 
+end
 John-->>Alice: Great!
 
 Alice-)John: See you later!
+```
+
+```mermaid
+C4Component
+    title Threading Model
+    
+    Container(col, "Collector", "main thread", "Processes from Root Paths defined in configuration")
+    Container(cbh, "Catalog Block Handler", "onsite", "Builds a catalog of directories & files to process")
+    Container(pbh, "Path Block Handler2", "onsite")
+    Container(bp, "Block Processor", "offsite")
+    
+    Component(db, "Database")
+    
+    Rel(col, cbh, ":catalog-add-block")
+    Rel(col, db, ":catalog-add-block")
+    Rel(cbh, pbh, ":root-path")
+    Rel_Back(pbh, db, "get-path-blocks")
 ```
